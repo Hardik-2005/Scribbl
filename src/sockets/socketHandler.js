@@ -444,6 +444,126 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
+  // Phase 4: Drawing Events
+  // ============================================
+
+  // Event: draw_stroke
+  // Handles drawing strokes from the drawer
+  socket.on('draw_stroke', (payload, callback) => {
+    try {
+      const { roomId, stroke } = payload;
+
+      // Validate payload
+      if (!roomId || !stroke) {
+        const error = { success: false, error: 'roomId and stroke are required' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Get room
+      const room = roomManager.getRoom(roomId);
+      if (!room) {
+        const error = { success: false, error: 'Room does not exist' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Get player info
+      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      if (!playerInfo || playerInfo.roomId !== roomId) {
+        const error = { success: false, error: 'You are not in this room' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Import drawingEngine
+      import('../game/drawingEngine.js').then(({ handleDrawStroke }) => {
+        const result = handleDrawStroke(room, playerInfo.userId, stroke, socket, io);
+
+        // Only send error if not throttled
+        if (!result.success && !result.throttled) {
+          const error = { success: false, error: result.error };
+          socket.emit('game_error', error);
+          if (callback) callback(error);
+        } else if (result.success && callback) {
+          callback({ success: true });
+        }
+      }).catch(err => {
+        console.error('[Socket] Error loading drawingEngine:', err.message);
+        const error = { success: false, error: 'Internal server error' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+      });
+
+    } catch (error) {
+      console.error('[Socket] Error handling draw stroke:', error.message);
+      const errorResponse = { success: false, error: error.message };
+      socket.emit('game_error', errorResponse);
+      if (callback) callback(errorResponse);
+    }
+  });
+
+  // Event: request_sync_strokes
+  // Syncs stroke history to client (on join/reconnect)
+  socket.on('request_sync_strokes', (payload, callback) => {
+    try {
+      const { roomId } = payload;
+
+      // Validate payload
+      if (!roomId) {
+        const error = { success: false, error: 'roomId is required' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Get room
+      const room = roomManager.getRoom(roomId);
+      if (!room) {
+        const error = { success: false, error: 'Room does not exist' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Get player info
+      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      if (!playerInfo || playerInfo.roomId !== roomId) {
+        const error = { success: false, error: 'You are not in this room' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Import drawingEngine
+      import('../game/drawingEngine.js').then(({ syncStrokes }) => {
+        const result = syncStrokes(room, socket);
+
+        if (callback) {
+          callback({ 
+            success: result.success, 
+            strokeCount: result.strokeCount || 0
+          });
+        }
+      }).catch(err => {
+        console.error('[Socket] Error loading drawingEngine:', err.message);
+        const error = { success: false, error: 'Internal server error' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+      });
+
+    } catch (error) {
+      console.error('[Socket] Error syncing strokes:', error.message);
+      const errorResponse = { success: false, error: error.message };
+      socket.emit('game_error', errorResponse);
+      if (callback) callback(errorResponse);
+    }
+  });
+
+  // ============================================
   // Event: reset_game (Phase 3)
   // Resets game state and scores
   // ============================================

@@ -322,6 +322,18 @@
         </div>
         <button id="btn-start-game" class="btn-start-game" disabled>Start Game</button>
         <button id="btn-reset-game" disabled style="margin-top: 10px; background: #e74c3c;">Reset Game</button>
+        
+        <!-- Phase 4: Drawing Test Controls -->
+        <div style="margin-top: 15px; padding: 10px; background: rgba(52, 73, 94, 0.5); border-radius: 5px;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #ecf0f1;">🎨 Drawing Test (Phase 4)</h3>
+          <button id="btn-test-stroke" disabled style="background: #9b59b6; font-size: 12px;">Send Test Stroke</button>
+          <button id="btn-sync-strokes" disabled style="background: #3498db; font-size: 12px; margin-left: 5px;">Sync Strokes</button>
+          <div style="margin-top: 10px; font-size: 11px; color: #95a5a6;">
+            <strong>Status:</strong> <span id="drawing-status">Not drawer</span><br>
+            <strong>Strokes:</strong> <span id="stroke-count">0</span>
+          </div>
+        </div>
+        
         <div class="guess-section">
           <div class="form-group">
             <input type="text" id="input-guess" placeholder="Type your guess..." disabled>
@@ -386,6 +398,13 @@
     const btnStartGame = document.getElementById('btn-start-game');
     const btnResetGame = document.getElementById('btn-reset-game'); // Phase 3
     const btnSubmitGuess = document.getElementById('btn-submit-guess');
+    
+    // Phase 4: Drawing test buttons
+    const btnTestStroke = document.getElementById('btn-test-stroke');
+    const btnSyncStrokes = document.getElementById('btn-sync-strokes');
+    const drawingStatusDisplay = document.getElementById('drawing-status');
+    const strokeCountDisplay = document.getElementById('stroke-count');
+    let testStrokeCount = 0; // Phase 4: track local sent strokes
 
     // Game UI Elements
     const gameStatusDisplay = document.getElementById('game-status');
@@ -492,16 +511,30 @@
         
         roundInfoDisplay.textContent = `Round: ${data.roundNumber}/${totalRounds} | Drawer: ${data.drawerName}`;
         
+        // Phase 4: Update drawing controls
+        testStrokeCount = 0;
+        strokeCountDisplay.textContent = '0';
+        
         if (isDrawer) {
           updateGameStatus('🎨 You are drawing!');
           wordDisplay.textContent = 'Word loading...';
           inputGuess.disabled = true;
           btnSubmitGuess.disabled = true;
+          // Phase 4: Enable drawing buttons for drawer
+          btnTestStroke.disabled = false;
+          btnSyncStrokes.disabled = false;
+          drawingStatusDisplay.textContent = 'You are drawer';
+          drawingStatusDisplay.style.color = '#2ecc71';
         } else {
           updateGameStatus('🤔 Guess the word!');
           wordDisplay.textContent = '_ _ _ _ _';
           inputGuess.disabled = false;
           btnSubmitGuess.disabled = false;
+          // Phase 4: Disable drawing buttons for guessers
+          btnTestStroke.disabled = true;
+          btnSyncStrokes.disabled = false; // Allow sync for all
+          drawingStatusDisplay.textContent = 'Not drawer';
+          drawingStatusDisplay.style.color = '#95a5a6';
         }
       });
 
@@ -556,6 +589,10 @@
         timerDisplay.textContent = '--';
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
+        // Phase 4: Disable drawing during round end
+        btnTestStroke.disabled = true;
+        drawingStatusDisplay.textContent = 'Round ended';
+        drawingStatusDisplay.style.color = '#e74c3c';
         
         // Show scores
         let scoreMsg = 'Scores: ';
@@ -625,6 +662,37 @@
 
       socket.on('game_error', (data) => {
         addMessage('error', `❌ Game Error: ${data.error}`);
+      });
+
+      // ============================================
+      // Phase 4: Drawing Events
+      // ============================================
+
+      socket.on('draw_stroke', (data) => {
+        // Log stroke received (no canvas implementation yet)
+        console.log('[Drawing] Stroke received:', {
+          roomId: data.roomId,
+          stroke: data.stroke
+        });
+        addMessage('system', `🖌️ Stroke received (${data.stroke.color}, size ${data.stroke.size})`);
+      });
+
+      socket.on('sync_strokes', (data) => {
+        // Log stroke sync (no canvas implementation yet)
+        console.log('[Drawing] Stroke sync:', {
+          roomId: data.roomId,
+          strokeCount: data.strokes.length
+        });
+        addMessage('system', `🔄 Synced ${data.strokes.length} strokes from history`);
+        strokeCountDisplay.textContent = data.strokes.length;
+      });
+
+      socket.on('clear_canvas', (data) => {
+        // Log canvas clear (no canvas implementation yet)
+        console.log('[Drawing] Canvas cleared:', data.roomId);
+        addMessage('system', '🧹 Canvas cleared');
+        strokeCountDisplay.textContent = '0';
+        testStrokeCount = 0;
       });
     }
 
@@ -739,6 +807,54 @@
       socket.emit('reset_game', { roomId: currentRoomId }, (response) => {
         if (!response.success) {
           addMessage('error', `Failed to reset game: ${response.error}`);
+        }
+      });
+    });
+
+    // Phase 4: Drawing test controls
+
+    btnTestStroke.addEventListener('click', () => {
+      if (!currentRoomId) {
+        alert('Please join a room first');
+        return;
+      }
+
+      // Generate random test stroke
+      const testStroke = {
+        x: Math.floor(Math.random() * 500),
+        y: Math.floor(Math.random() * 500),
+        prevX: Math.floor(Math.random() * 500),
+        prevY: Math.floor(Math.random() * 500),
+        color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+        size: Math.floor(Math.random() * 30) + 5
+      };
+
+      socket.emit('draw_stroke', { 
+        roomId: currentRoomId, 
+        stroke: testStroke 
+      }, (response) => {
+        if (response && response.success) {
+          testStrokeCount++;
+          strokeCountDisplay.textContent = testStrokeCount;
+          console.log('[Drawing] Test stroke sent:', testStroke);
+        } else if (response && response.error) {
+          addMessage('error', `Drawing error: ${response.error}`);
+        }
+      });
+    });
+
+    btnSyncStrokes.addEventListener('click', () => {
+      if (!currentRoomId) {
+        alert('Please join a room first');
+        return;
+      }
+
+      socket.emit('request_sync_strokes', { 
+        roomId: currentRoomId 
+      }, (response) => {
+        if (response && response.success) {
+          console.log(`[Drawing] Synced ${response.strokeCount} strokes`);
+          addMessage('system', `Synced ${response.strokeCount} strokes`);
         }
       });
     });

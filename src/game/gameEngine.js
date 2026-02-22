@@ -34,6 +34,9 @@ export function initializeGameState(room) {
     totalRounds: DEFAULT_TOTAL_ROUNDS,
     roundDuration: DEFAULT_ROUND_DURATION
   };
+  // Phase 4: Drawing engine fields
+  room.strokeHistory = [];
+  room.lastStrokeTimestamp = 0;
 }
 
 /**
@@ -411,6 +414,14 @@ export function handleGuess(room, userId, guess, io, socket) {
 export function endRound(room, io, reason = 'time_up') {
   // Stop timer
   stopRoundTimer(room.roomId);
+
+  // Phase 4: Clear canvas
+  // Dynamic import to avoid circular dependency
+  import('../game/drawingEngine.js').then(({ clearCanvas }) => {
+    clearCanvas(room, io);
+  }).catch(err => {
+    console.error('[GameEngine] Error clearing canvas:', err.message);
+  });
 
   // Set state to round_end
   room.gameState = 'round_end';
