@@ -102,14 +102,7 @@ console.log('[Redis] Adapter connected');
 // ============================================
 
 httpServer.listen(PORT, () => {
-  console.log('='.repeat(50));
-  console.log('🎮 Scribble Game Backend - Phase 1');
-  console.log('='.repeat(50));
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`✅ WebSocket server ready`);
-  console.log(`✅ Health check: http://localhost:${PORT}/health`);
-  console.log(`✅ Stats API: http://localhost:${PORT}/api/stats`);
-  console.log('='.repeat(50));
+  console.log(`Server running on port ${PORT}`);
 });
 
 // ============================================

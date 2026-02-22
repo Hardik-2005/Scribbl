@@ -6,6 +6,8 @@
 
 import { createClient } from 'redis';
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+
 let _client = null;
 
 /**
@@ -14,9 +16,7 @@ let _client = null;
  */
 export function getRedisClient() {
   if (!_client) {
-    _client = createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379'
-    });
+    _client = createClient({ url: redisUrl });
 
     _client.on('error',        (err) => console.error('[Redis] Client error:', err));
     _client.on('reconnecting', ()    => console.warn('[Redis] Reconnecting...'));
@@ -36,7 +36,7 @@ export async function connectRedis() {
 
   if (!client.isOpen) {
     await client.connect();
-    console.log('[Redis] Connected to', process.env.REDIS_URL || 'redis://localhost:6379');
+    console.log('[Redis] Connected to', redisUrl);
   }
 
   return client;
