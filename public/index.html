@@ -713,7 +713,7 @@
       }
 
       addMessage('system', 'Connecting to server...');
-      socket = io('http://localhost:3000', {
+      socket = io('https://inkarena-backend.onrender.com', {
         transports: ['websocket', 'polling']
       });
 
