@@ -1,9 +1,10 @@
-# 🎮 Scribble Game Backend - Phase 1 & 2
+# 🎮 Scribble Game Backend - Phases 1-3
 
-A real-time multiplayer drawing game backend built with Node.js, Express, and Socket.IO. 
+A real-time competitive multiplayer drawing game backend built with Node.js, Express, and Socket.IO. 
 
 **Phase 1:** WebSocket foundations, room management, and real-time communication  
-**Phase 2:** Game engine, round lifecycle, guess validation, and scoring
+**Phase 2:** Game engine, round lifecycle, guess validation, and scoring  
+**Phase 3:** Competitive system with time-based scoring, close guess detection, and game endings
 
 ## 📋 Features
 
@@ -73,6 +74,57 @@ A real-time multiplayer drawing game backend built with Node.js, Express, and So
 - `round_timer_update` (every second)
 - `correct_guess`, `word_reveal`, `word_hint`
 
+### Phase 3 Features ✅
+
+**⏱️ Time-Based Scoring**
+- Dynamic points: 10-100 based on guess speed
+- Formula: `floor(100 * (remainingTime / 60))`
+- Rewards quick thinking and strategic play
+- Earlier guesses earn significantly more points
+
+**🎯 Configurable Rounds**
+- User-selectable round count (1-10)
+- Flexible game lengths (quick 1-round or extended 10-round)
+- Round display: "Round X / Y" format
+- Game ends automatically after totalRounds complete
+
+**🔥 Close Guess Detection**
+- Levenshtein distance algorithm (edit distance ≤ 1)
+- Private "🔥 So close! Try again!" notifications
+- Encourages persistence without spoiling answer
+- Detects typos, singular/plural, etc.
+
+**🎨 Drawer Bonus System**
+- +50 points if at least 1 player guesses correctly
+- 0 points if nobody guesses (timer expires)
+- Incentivizes good drawing skills
+- Balances drawer/guesser roles
+
+**🏆 Game Endings & Winner Declaration**
+- Proper game lifecycle with winner identification
+- Sorted leaderboard (highest score wins)
+- Medals for top 3 players (🥇🥈🥉)
+- Final scores displayed with rankings
+
+**🔄 Game Reset Capability**
+- Reset game after completion
+- All scores return to 0
+- State returns to 'waiting'
+- Validation: Cannot reset during active round
+- Quick rematches without leaving room
+
+**🙈 Chat Privacy**
+- Correct guesses hidden from public chat
+- Wrong guesses shown publicly
+- Private success notifications with points earned
+- Prevents word spoiling for other players
+
+**📡 New Events**
+- `game_ended` - Winner and leaderboard
+- `game_reset` - Reset confirmation
+- `close_guess` - Near-miss feedback
+- `correct_guess` updated with `pointsEarned` field
+
 ## 📁 Project Structure
 
 ```
@@ -84,17 +136,19 @@ A real-time multiplayer drawing game backend built with Node.js, Express, and So
     /rooms
       roomManager.js       # In-memory room state manager
     /sockets
-      socketHandler.js     # Socket event handlers
-    /game                  # Phase 2: Game logic
-      gameEngine.js        # Game state & round lifecycle
+      socketHandler.js     # Socket event handlers (Phases 1-3)
+    /game                  # Phases 2-3: Game logic
+      gameEngine.js        # Game state, rounds, scoring (Phases 2-3)
       wordService.js       # Word selection & validation
     /utils
       idGenerator.js       # UUID generation utilities
   /public
-    index.html             # HTML test client
+    index.html             # HTML test client (Phases 1-3)
   package.json             # Dependencies and scripts
   README.md               # This file
   PHASE2_TESTING.md       # Phase 2 testing guide
+  PHASE3_TESTING.md       # Phase 3 testing guide
+  PHASE3_SUMMARY.md       # Phase 3 comprehensive summary
 ```
 
 ## 🚀 Getting Started
@@ -418,16 +472,16 @@ export default myClass;
 
 ## 🚧 What's NOT Yet Implemented
 
-Phase 1 & 2 do NOT include:
+Phases 1-3 do NOT include:
 
 - ❌ Database persistence
 - ❌ Redis for scaling
 - ❌ Drawing/canvas logic
-- ❌ Advanced scoring (time bonus, drawer points)
+- ❌ Authentication/authorization
 - ❌ Word categories/difficulty levels
 - ❌ Custom word lists
 - ❌ Hint system (letter reveals)
-- ❌ Authentication/authorization
+- ❌ Spectator mode
 
 ✅ **Implemented in Phase 2:**
 - ✔️ Game timer system (60s server-authoritative)
@@ -435,7 +489,16 @@ Phase 1 & 2 do NOT include:
 - ✔️ Word selection (50-word hardcoded list)
 - ✔️ Turn management (round-robin drawer rotation)
 
-These advanced features will be added in Phase 3.
+✅ **Implemented in Phase 3:**
+- ✔️ Time-based scoring (10-100 points based on speed)
+- ✔️ Configurable rounds (1-10)
+- ✔️ Close guess detection (Levenshtein distance)
+- ✔️ Drawer bonus (+50 points)
+- ✔️ Game endings with winner declaration
+- ✔️ Reset game functionality
+- ✔️ Correct guesses hidden from chat
+
+These features provide a complete competitive experience. Advanced features (canvas, persistence) will be added in Phase 4+.
 
 ## 🔒 Security Notes
 
@@ -500,7 +563,38 @@ These advanced features will be added in Phase 3.
 3. Round ends immediately
 4. Next round starts with different drawer
 
-**📖 Full Testing Guide:** See [PHASE2_TESTING.md](PHASE2_TESTING.md) for comprehensive game testing scenarios.
+### Phase 3 Testing
+
+#### Scenario 7: Time-Based Scoring
+1. 2+ players join room
+2. Start game with 3 rounds
+3. Player A guesses at 55s remaining → ~91 points
+4. Player B guesses at 30s remaining → ~50 points
+5. Verify scores displayed correctly
+
+#### Scenario 8: Close Guess Detection
+1. Drawer's word is "apple"
+2. Player guesses "apples" → "🔥 So close!"
+3. Player guesses "appel" → "🔥 So close!"
+4. Player guesses "banana" → No close guess message
+5. Player guesses "apple" → Correct! Points awarded
+
+#### Scenario 9: Game Ending & Winner
+1. Start game with 2 rounds
+2. Play through both rounds
+3. After round 2 ends → "🏆 GAME OVER!"
+4. Winner declared with score
+5. Leaderboard shown with medals
+6. Reset button enabled
+
+#### Scenario 10: Reset Game
+1. Complete a full game
+2. Click "Reset Game"
+3. All scores return to 0
+4. State returns to waiting
+5. Start new game successfully
+
+**📖 Full Testing Guide:** See [PHASE2_TESTING.md](PHASE2_TESTING.md) for Phase 2 scenarios and [PHASE3_TESTING.md](PHASE3_TESTING.md) for comprehensive Phase 3 testing.
 
 ## 📚 Dependencies
 
@@ -522,13 +616,16 @@ Built with ❤️ for real-time multiplayer gaming
 
 ---
 
-**Next Steps (Phase 3):**
+**Next Steps (Phase 4+):**
 - Drawing/canvas WebSocket events (stroke data, colors, brush sizes)
-- Advanced scoring (time bonus, drawer points when guessed)
 - Word categories and difficulty levels
 - Custom word lists per room
 - Hint system (reveal letters)
-- Manual game controls (stop, skip, kick)
-- Room settings (round count, timer duration)
+- Manual game controls (kick player, skip round)
+- Advanced room settings (timer duration, word pool)
 - Spectator mode
-- Chat moderation
+- Chat moderation and profanity filter
+- Database persistence (PostgreSQL/MongoDB)
+- Redis for room state and scaling
+
+**Phase 3 Complete!** See [PHASE3_TESTING.md](PHASE3_TESTING.md) for full test guide and [PHASE3_SUMMARY.md](PHASE3_SUMMARY.md) for detailed implementation overview.

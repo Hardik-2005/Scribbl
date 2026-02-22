@@ -1,6 +1,6 @@
 import roomManager from '../rooms/roomManager.js';
 import { generateUserId } from '../utils/idGenerator.js';
-import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount } from '../game/gameEngine.js';
+import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, resetGame } from '../game/gameEngine.js';
 
 /**
  * Socket event handler
@@ -282,16 +282,25 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
-  // Event: start_game (Phase 2)
+  // Event: start_game (Phase 3: with configurable rounds)
   // Starts the game in a room
   // ============================================
   socket.on('start_game', (payload, callback) => {
     try {
-      const { roomId } = payload;
+      const { roomId, totalRounds } = payload;
 
       // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Phase 3: Validate totalRounds
+      const rounds = totalRounds || 3; // Default to 3 if not provided
+      if (typeof rounds !== 'number' || rounds < 1 || rounds > 10) {
+        const error = { success: false, error: 'Total rounds must be between 1 and 10' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
@@ -306,6 +315,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
+      // Phase 3: Strict state validation
+      if (room.gameState === 'playing' || room.gameState === 'round_end') {
+        const error = { success: false, error: 'Game already in progress' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
       // Check if player is in the room
       const playerInfo = roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
@@ -315,8 +332,8 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Start game
-      const result = startGame(room, io);
+      // Start game with configured rounds
+      const result = startGame(room, rounds, io);
 
       if (!result.success) {
         const error = { success: false, error: result.error };
@@ -326,9 +343,9 @@ export function handleSocketConnection(io, socket) {
       }
 
       // Send success response
-      if (callback) callback({ success: true, message: 'Game started' });
+      if (callback) callback({ success: true, message: 'Game started', totalRounds: rounds });
 
-      console.log(`[Socket] Game started in room ${roomId}`);
+      console.log(`[Socket] Game started in room ${roomId} with ${rounds} rounds`);
 
     } catch (error) {
       console.error('[Socket] Error starting game:', error.message);
@@ -339,7 +356,7 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
-  // Event: submit_guess (Phase 2)
+  // Event: submit_guess (Phase 3: Hide correct guesses, close guess detection)
   // Handles player guess submissions
   // ============================================
   socket.on('submit_guess', (payload, callback) => {
@@ -370,6 +387,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
+      // Phase 3: Strict state validation
+      if (room.gameState !== 'playing') {
+        const error = { success: false, error: 'Game is not in progress' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
       // Get player info
       const playerInfo = roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
@@ -381,8 +406,8 @@ export function handleSocketConnection(io, socket) {
 
       const player = room.players.get(playerInfo.userId);
 
-      // Handle guess through game engine
-      const result = handleGuess(room, playerInfo.userId, guess, io);
+      // Phase 3: Handle guess through game engine (pass socket for close guess)
+      const result = handleGuess(room, playerInfo.userId, guess, io, socket);
 
       if (!result.success) {
         const error = { success: false, error: result.error };
@@ -391,8 +416,9 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // If incorrect, broadcast as regular message
-      if (!result.correct) {
+      // Phase 3: Only broadcast incorrect/close guesses to chat
+      // Correct guesses are NOT shown in chat (word stays hidden)
+      if (!result.correct && !result.close) {
         io.to(roomId).emit('receive_message', {
           roomId,
           userId: player.userId,
@@ -403,10 +429,71 @@ export function handleSocketConnection(io, socket) {
       }
 
       // Send acknowledgment
-      if (callback) callback({ success: true, correct: result.correct });
+      if (callback) callback({ 
+        success: true, 
+        correct: result.correct,
+        close: result.close || false
+      });
 
     } catch (error) {
       console.error('[Socket] Error submitting guess:', error.message);
+      const errorResponse = { success: false, error: error.message };
+      socket.emit('game_error', errorResponse);
+      if (callback) callback(errorResponse);
+    }
+  });
+
+  // ============================================
+  // Event: reset_game (Phase 3)
+  // Resets game state and scores
+  // ============================================
+  socket.on('reset_game', (payload, callback) => {
+    try {
+      const { roomId } = payload;
+
+      // Validation
+      if (!roomId || typeof roomId !== 'string') {
+        const error = { success: false, error: 'Invalid room ID' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Check if room exists
+      const room = roomManager.getRoom(roomId);
+      if (!room) {
+        const error = { success: false, error: 'Room does not exist' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Check if player is in the room
+      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      if (!playerInfo || playerInfo.roomId !== roomId) {
+        const error = { success: false, error: 'You are not in this room' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Reset game
+      const result = resetGame(room, io);
+
+      if (!result.success) {
+        const error = { success: false, error: result.error };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
+      // Send success response
+      if (callback) callback({ success: true, message: 'Game reset' });
+
+      console.log(`[Socket] Game reset in room ${roomId}`);
+
+    } catch (error) {
+      console.error('[Socket] Error resetting game:', error.message);
       const errorResponse = { success: false, error: error.message };
       socket.emit('game_error', errorResponse);
       if (callback) callback(errorResponse);

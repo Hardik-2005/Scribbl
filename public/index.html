@@ -301,14 +301,14 @@
         <button id="btn-reconnect" disabled style="margin-top: 10px; background: #f39c12;">Reconnect</button>
       </div>
 
-      <!-- Game Panel (Phase 2) -->
+      <!-- Game Panel (Phase 3) -->
       <div class="panel game-panel">
         <h2>🎮 Game Control</h2>
         <div class="game-status" id="game-status">
           ⏸️ Waiting to start
         </div>
         <div class="round-info" id="round-info">
-          Round: - | Drawer: -
+          Round: - / - | Drawer: -
         </div>
         <div class="timer-display" id="timer-display">
           --
@@ -316,7 +316,12 @@
         <div class="word-display" id="word-display">
           No word yet
         </div>
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label style="color: white;">Total Rounds (1-10):</label>
+          <input type="number" id="input-total-rounds" min="1" max="10" value="3" style="text-align: center;">
+        </div>
         <button id="btn-start-game" class="btn-start-game" disabled>Start Game</button>
+        <button id="btn-reset-game" disabled style="margin-top: 10px; background: #e74c3c;">Reset Game</button>
         <div class="guess-section">
           <div class="form-group">
             <input type="text" id="input-guess" placeholder="Type your guess..." disabled>
@@ -356,6 +361,8 @@
     let currentUsername = null;
     let isDrawer = false;
     let gameState = 'waiting';
+    let currentRound = 0; // Phase 3
+    let totalRounds = 0;  // Phase 3
 
     // DOM Elements
     const connectionStatus = document.getElementById('connection-status');
@@ -369,6 +376,7 @@
     const inputUsername = document.getElementById('input-username');
     const inputMessage = document.getElementById('input-message');
     const inputGuess = document.getElementById('input-guess');
+    const inputTotalRounds = document.getElementById('input-total-rounds'); // Phase 3
 
     const btnConnect = document.getElementById('btn-connect');
     const btnCreateRoom = document.getElementById('btn-create-room');
@@ -376,6 +384,7 @@
     const btnReconnect = document.getElementById('btn-reconnect');
     const btnSendMessage = document.getElementById('btn-send-message');
     const btnStartGame = document.getElementById('btn-start-game');
+    const btnResetGame = document.getElementById('btn-reset-game'); // Phase 3
     const btnSubmitGuess = document.getElementById('btn-submit-guess');
 
     // Game UI Elements
@@ -461,22 +470,27 @@
       });
 
       // ============================================
-      // Phase 2: Game Events
+      // Phase 3: Game Events (Updated)
       // ============================================
 
       socket.on('game_started', (data) => {
-        addMessage('system', '🎮 Game started!');
+        totalRounds = data.totalRounds || 3;
+        addMessage('system', `🎮 Game started with ${totalRounds} rounds!`);
         gameState = 'playing';
         updateGameStatus('🎮 Game in progress');
         btnStartGame.disabled = true;
+        btnResetGame.disabled = true;
+        inputTotalRounds.disabled = true;
       });
 
       socket.on('round_started', (data) => {
-        addMessage('system', `🎯 Round ${data.roundNumber} started - ${data.drawerName} is drawing!`);
+        currentRound = data.roundNumber;
+        totalRounds = totalRounds || 3;
+        addMessage('system', `🎯 Round ${data.roundNumber}/${totalRounds} started - ${data.drawerName} is drawing!`);
         isDrawer = (data.drawerId === currentUserId);
         gameState = 'playing';
         
-        roundInfoDisplay.textContent = `Round: ${data.roundNumber} | Drawer: ${data.drawerName}`;
+        roundInfoDisplay.textContent = `Round: ${data.roundNumber}/${totalRounds} | Drawer: ${data.drawerName}`;
         
         if (isDrawer) {
           updateGameStatus('🎨 You are drawing!');
@@ -515,19 +529,27 @@
         }
       });
 
+      // Phase 3: Updated correct_guess with points display
       socket.on('correct_guess', (data) => {
         if (data.userId === currentUserId) {
-          addMessage('system', '🎉 Correct! You guessed the word!');
+          addMessage('system', `🎉 Correct! +${data.pointsEarned} points!`);
           updateGameStatus('✅ You guessed correctly!');
           inputGuess.disabled = true;
           btnSubmitGuess.disabled = true;
         } else {
-          addMessage('system', `✅ ${data.username} guessed correctly!`);
+          addMessage('system', `✅ ${data.username} guessed correctly! (+${data.pointsEarned} pts)`);
         }
       });
 
+      // Phase 3: Close guess notification
+      socket.on('close_guess', (data) => {
+        addMessage('system', '🔥 ' + data.message);
+      });
+
       socket.on('round_ended', (data) => {
-        addMessage('system', `⏱️ Round ${data.roundNumber} ended! The word was: ${data.word}`);
+        currentRound = data.roundNumber;
+        totalRounds = data.totalRounds || totalRounds;
+        addMessage('system', `⏱️ Round ${data.roundNumber}/${data.totalRounds} ended! The word was: ${data.word}`);
         gameState = 'round_end';
         updateGameStatus('⏸️ Round ended');
         wordDisplay.textContent = data.word.toUpperCase();
@@ -543,14 +565,60 @@
         addMessage('system', scoreMsg);
       });
 
-      socket.on('game_stopped', (data) => {
-        addMessage('system', `🛑 Game stopped: ${data.reason}`);
+      // Phase 3: Game ended with winner
+      socket.on('game_ended', (data) => {
+        addMessage('system', `🏆 GAME OVER!`);
+        addMessage('system', `👑 Winner: ${data.winner.username} with ${data.winner.score} points!`);
+        
+        gameState = 'finished';
+        updateGameStatus(`🏆 Winner: ${data.winner.username}!`);
+        wordDisplay.textContent = 'Game Complete';
+        timerDisplay.textContent = '🏁';
+        roundInfoDisplay.textContent = 'Game Finished';
+        
+        // Show leaderboard
+        addMessage('system', '📊 Final Leaderboard:');
+        data.leaderboard.forEach((player, index) => {
+          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+          addMessage('system', `${medal} ${player.username}: ${player.score} points`);
+        });
+        
+        btnStartGame.disabled = false;
+        btnResetGame.disabled = false;
+        inputTotalRounds.disabled = false;
+        inputGuess.disabled = true;
+        btnSubmitGuess.disabled = true;
+      });
+
+      // Phase 3: Game reset
+      socket.on('game_reset', (data) => {
+        addMessage('system', '🔄 ' + data.message);
         gameState = 'waiting';
+        currentRound = 0;
+        totalRounds = 0;
         updateGameStatus('⏸️ Waiting to start');
         wordDisplay.textContent = 'No word yet';
         timerDisplay.textContent = '--';
-        roundInfoDisplay.textContent = 'Round: - | Drawer: -';
+        roundInfoDisplay.textContent = 'Round: - / - | Drawer: -';
         btnStartGame.disabled = false;
+        btnResetGame.disabled = false;
+        inputTotalRounds.disabled = false;
+        inputGuess.disabled = true;
+        btnSubmitGuess.disabled = true;
+      });
+
+      socket.on('game_stopped', (data) => {
+        addMessage('system', `🛑 Game stopped: ${data.reason}`);
+        gameState = 'waiting';
+        currentRound = 0;
+        totalRounds = 0;
+        updateGameStatus('⏸️ Waiting to start');
+        wordDisplay.textContent = 'No word yet';
+        timerDisplay.textContent = '--';
+        roundInfoDisplay.textContent = 'Round: - / - | Drawer: -';
+        btnStartGame.disabled = false;
+        btnResetGame.disabled = false;
+        inputTotalRounds.disabled = false;
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
       });
@@ -635,19 +703,42 @@
     }
 
     // ============================================
-    // Phase 2: Game Controls
+    // Phase 3: Game Controls (Updated)
     // ============================================
 
-    // Start game
+    // Start game with configurable rounds
     btnStartGame.addEventListener('click', () => {
       if (!currentRoomId) {
         alert('Please join a room first');
         return;
       }
 
-      socket.emit('start_game', { roomId: currentRoomId }, (response) => {
+      const rounds = parseInt(inputTotalRounds.value) || 3;
+      if (rounds < 1 || rounds > 10) {
+        alert('Please enter a number of rounds between 1 and 10');
+        return;
+      }
+
+      socket.emit('start_game', { 
+        roomId: currentRoomId,
+        totalRounds: rounds 
+      }, (response) => {
         if (!response.success) {
           addMessage('error', `Failed to start game: ${response.error}`);
+        }
+      });
+    });
+
+    // Reset game (Phase 3)
+    btnResetGame.addEventListener('click', () => {
+      if (!currentRoomId) {
+        alert('Please join a room first');
+        return;
+      }
+
+      socket.emit('reset_game', { roomId: currentRoomId }, (response) => {
+        if (!response.success) {
+          addMessage('error', `Failed to reset game: ${response.error}`);
         }
       });
     });
