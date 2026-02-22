@@ -10,7 +10,6 @@
 
 const MAX_STROKE_SIZE = 50;
 const MIN_STROKE_SIZE = 1;
-const THROTTLE_MS = 16; // ~60 strokes per second (1000ms / 60 = 16.67ms)
 const HEX_COLOR_REGEX = /^#([0-9A-F]{3}){1,2}$/i;
 
 // ============================================
@@ -84,18 +83,6 @@ function isDrawerAuthorized(room, userId) {
   return { authorized: true };
 }
 
-/**
- * Checks if stroke should be throttled
- * @param {Object} room - Room object
- * @returns {boolean} True if stroke should be throttled (ignored)
- */
-function shouldThrottle(room) {
-  const now = Date.now();
-  const timeSinceLastStroke = now - (room.lastStrokeTimestamp || 0);
-  
-  return timeSinceLastStroke < THROTTLE_MS;
-}
-
 // ============================================
 // Core Drawing Functions
 // ============================================
@@ -118,20 +105,14 @@ export function handleDrawStroke(room, userId, stroke, socket, io) {
       return { success: false, error: authCheck.error };
     }
 
-    // 2. Throttling check
-    if (shouldThrottle(room)) {
-      // Silently ignore (don't log spam)
-      return { success: false, error: 'Rate limited', throttled: true };
-    }
-
-    // 3. Validate stroke data
+    // 2. Validate stroke data
     const validation = validateStroke(stroke);
     if (!validation.valid) {
       console.log(`[DrawingEngine] Invalid stroke from ${userId}: ${validation.error}`);
       return { success: false, error: validation.error };
     }
 
-    // 4. Store stroke in history
+    // 3. Store stroke in history
     const strokeData = {
       x: stroke.x,
       y: stroke.y,
@@ -144,22 +125,77 @@ export function handleDrawStroke(room, userId, stroke, socket, io) {
 
     room.strokeHistory.push(strokeData);
 
-    // 5. Update last stroke timestamp
-    room.lastStrokeTimestamp = Date.now();
-
-    // 6. Broadcast to other players (NOT to drawer)
+    // 4. Broadcast to other players (NOT to drawer)
     socket.to(room.roomId).emit('draw_stroke', {
       roomId: room.roomId,
       stroke: strokeData
     });
 
-    // Log for testing
-    console.log(`[DrawingEngine] Stroke broadcast in room ${room.roomId} - Total strokes: ${room.strokeHistory.length}`);
-
     return { success: true };
 
   } catch (error) {
     console.error('[DrawingEngine] Error handling draw stroke:', error.message);
+    return { success: false, error: 'Internal server error' };
+  }
+}
+
+/**
+ * Handles a batch of draw strokes from a client (rAF-batched)
+ * @param {Object} room - Room object
+ * @param {string} userId - User ID of the drawer
+ * @param {Array} strokes - Array of stroke data objects
+ * @param {Object} socket - Socket instance of the drawer
+ * @param {Object} io - Socket.IO server instance
+ * @returns {Object} { success: boolean, accepted: number, rejected: number }
+ */
+export function handleDrawStrokeBatch(room, userId, strokes, socket, io) {
+  try {
+    // 1. Authorization check once for the whole batch
+    const authCheck = isDrawerAuthorized(room, userId);
+    if (!authCheck.authorized) {
+      console.log(`[DrawingEngine] Unauthorized batch draw by ${userId}: ${authCheck.error}`);
+      return { success: false, error: authCheck.error };
+    }
+
+    if (!Array.isArray(strokes) || strokes.length === 0) {
+      return { success: false, error: 'strokes must be a non-empty array' };
+    }
+
+    const validStrokes = [];
+    let rejected = 0;
+
+    // 2. Validate and collect each stroke
+    for (const stroke of strokes) {
+      const validation = validateStroke(stroke);
+      if (!validation.valid) {
+        rejected++;
+        continue;
+      }
+      const strokeData = {
+        x: stroke.x,
+        y: stroke.y,
+        prevX: stroke.prevX,
+        prevY: stroke.prevY,
+        color: stroke.color,
+        size: stroke.size,
+        timestamp: Date.now()
+      };
+      validStrokes.push(strokeData);
+      room.strokeHistory.push(strokeData);
+    }
+
+    // 3. Broadcast entire valid batch to other players
+    if (validStrokes.length > 0) {
+      socket.to(room.roomId).emit('draw_stroke_batch', {
+        roomId: room.roomId,
+        strokes: validStrokes
+      });
+    }
+
+    return { success: true, accepted: validStrokes.length, rejected };
+
+  } catch (error) {
+    console.error('[DrawingEngine] Error handling draw stroke batch:', error.message);
     return { success: false, error: 'Internal server error' };
   }
 }
@@ -239,6 +275,5 @@ export function getStrokeCount(room) {
 export const CONSTANTS = {
   MAX_STROKE_SIZE,
   MIN_STROKE_SIZE,
-  THROTTLE_MS,
   HEX_COLOR_REGEX
 };

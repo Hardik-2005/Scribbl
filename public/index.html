@@ -260,9 +260,147 @@
       margin-top: 15px;
     }
 
+    /* ============================================
+       Phase 4: Canvas Drawing Styles
+    ============================================ */
+
+    .canvas-panel {
+      grid-column: 1 / -1;
+    }
+
+    .canvas-panel h2 {
+      color: #667eea;
+      margin-bottom: 15px;
+    }
+
+    .drawing-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+      padding: 12px 16px;
+      background: #f4f4f8;
+      border-radius: 8px;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .toolbar-group label {
+      margin-bottom: 0;
+      font-size: 13px;
+      color: #555;
+      white-space: nowrap;
+    }
+
+    .toolbar-group input[type='color'] {
+      width: 38px;
+      height: 38px;
+      padding: 2px;
+      border: 2px solid #ddd;
+      border-radius: 6px;
+      cursor: pointer;
+      background: none;
+    }
+
+    .toolbar-group input[type='range'] {
+      width: 100px;
+      cursor: pointer;
+      accent-color: #667eea;
+    }
+
+    #brush-size-preview {
+      display: inline-block;
+      background: #333;
+      border-radius: 50%;
+      vertical-align: middle;
+      transition: width 0.1s, height 0.1s;
+    }
+
+    .toolbar-btn {
+      width: auto;
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    .canvas-wrapper {
+      position: relative;
+      display: block;
+      max-width: 800px;
+      width: 100%;
+    }
+
+    #drawingBoard {
+      display: block;
+      width: 100%;
+      max-width: 800px;
+      height: auto;
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      touch-action: none;
+      cursor: default;
+    }
+
+    #drawingBoard.drawing {
+      cursor: crosshair;
+    }
+
+    #drawingBoard.locked {
+      cursor: not-allowed;
+      opacity: 0.85;
+    }
+
+    #canvas-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.18);
+      color: white;
+      font-size: 20px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-shadow: 1px 1px 6px rgba(0,0,0,0.5);
+      pointer-events: none;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    #canvas-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .drawing-info-bar {
+      display: flex;
+      gap: 20px;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #777;
+    }
+
+    .drawing-info-bar span strong {
+      color: #444;
+    }
+
     @media (max-width: 768px) {
       .panels {
         grid-template-columns: 1fr;
+      }
+
+      .drawing-toolbar {
+        gap: 10px;
       }
     }
   </style>
@@ -322,18 +460,6 @@
         </div>
         <button id="btn-start-game" class="btn-start-game" disabled>Start Game</button>
         <button id="btn-reset-game" disabled style="margin-top: 10px; background: #e74c3c;">Reset Game</button>
-        
-        <!-- Phase 4: Drawing Test Controls -->
-        <div style="margin-top: 15px; padding: 10px; background: rgba(52, 73, 94, 0.5); border-radius: 5px;">
-          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #ecf0f1;">🎨 Drawing Test (Phase 4)</h3>
-          <button id="btn-test-stroke" disabled style="background: #9b59b6; font-size: 12px;">Send Test Stroke</button>
-          <button id="btn-sync-strokes" disabled style="background: #3498db; font-size: 12px; margin-left: 5px;">Sync Strokes</button>
-          <div style="margin-top: 10px; font-size: 11px; color: #95a5a6;">
-            <strong>Status:</strong> <span id="drawing-status">Not drawer</span><br>
-            <strong>Strokes:</strong> <span id="stroke-count">0</span>
-          </div>
-        </div>
-        
         <div class="guess-section">
           <div class="form-group">
             <input type="text" id="input-guess" placeholder="Type your guess..." disabled>
@@ -351,6 +477,42 @@
         <ul id="players-list" class="players-list">
           <li style="color: #999; text-align: center; padding: 20px;">Not in a room</li>
         </ul>
+      </div>
+
+      <!-- Canvas Panel (Phase 4) -->
+      <div class="panel canvas-panel" id="canvas-panel">
+        <h2>🎨 Drawing Board</h2>
+
+        <!-- Toolbar -->
+        <div class="drawing-toolbar">
+          <div class="toolbar-group">
+            <label for="color-picker">Color:</label>
+            <input type="color" id="color-picker" value="#000000">
+          </div>
+          <div class="toolbar-group">
+            <label for="brush-size">Size: <span id="brush-size-label">8</span>px</label>
+            <input type="range" id="brush-size" min="1" max="50" value="8">
+            <span id="brush-size-preview" style="width:8px;height:8px;"></span>
+          </div>
+          <button id="btn-clear-canvas" class="toolbar-btn" disabled style="background:#e74c3c;">🗑️ Clear</button>
+          <button id="btn-sync-strokes" class="toolbar-btn" disabled style="background:#3498db;">🔄 Sync</button>
+          <div class="toolbar-group" style="margin-left:auto;">
+            <span id="drawing-status" style="font-size:13px;color:#888;">Not drawing</span>
+          </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="canvas-wrapper">
+          <canvas id="drawingBoard" width="800" height="500"></canvas>
+          <div id="canvas-overlay">✋ Only the drawer can draw</div>
+        </div>
+
+        <!-- Info bar -->
+        <div class="drawing-info-bar">
+          <span><strong>Strokes:</strong> <span id="stroke-count">0</span></span>
+          <span><strong>Color:</strong> <span id="current-color-display">#000000</span></span>
+          <span><strong>Size:</strong> <span id="current-size-display">8</span>px</span>
+        </div>
       </div>
 
       <!-- Chat Panel -->
@@ -376,6 +538,144 @@
     let currentRound = 0; // Phase 3
     let totalRounds = 0;  // Phase 3
 
+    // ============================================
+    // Phase 4: Canvas Drawing Engine
+    // ============================================
+    const canvas = document.getElementById('drawingBoard');
+    const ctx = canvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    let isDrawing = false;
+    let prevPos = { x: 0, y: 0 };
+    let currentColor = '#000000';
+    let currentSize = 8;
+    let localStrokeCount = 0;
+    let strokeQueue = []; // rAF batch queue
+
+    // Toolbar elements
+    const colorPicker = document.getElementById('color-picker');
+    const brushSizeInput = document.getElementById('brush-size');
+    const brushSizeLabel = document.getElementById('brush-size-label');
+    const brushSizePreview = document.getElementById('brush-size-preview');
+    const canvasOverlay = document.getElementById('canvas-overlay');
+    const strokeCountDisplay = document.getElementById('stroke-count');
+    const currentColorDisplay = document.getElementById('current-color-display');
+    const currentSizeDisplay = document.getElementById('current-size-display');
+    const drawingStatusDisplay = document.getElementById('drawing-status');
+    const btnClearCanvas = document.getElementById('btn-clear-canvas');
+    const btnSyncStrokes = document.getElementById('btn-sync-strokes');
+
+    // Toolbar sync: color
+    colorPicker.addEventListener('input', () => {
+      currentColor = colorPicker.value;
+      currentColorDisplay.textContent = currentColor;
+    });
+
+    // Toolbar sync: brush size
+    brushSizeInput.addEventListener('input', () => {
+      currentSize = parseInt(brushSizeInput.value);
+      brushSizeLabel.textContent = currentSize;
+      currentSizeDisplay.textContent = currentSize;
+      brushSizePreview.style.width = currentSize + 'px';
+      brushSizePreview.style.height = currentSize + 'px';
+    });
+
+    // ── Canvas helpers ────────────────────────────────────────
+
+    function getMousePos(canvasEl, event) {
+      const rect = canvasEl.getBoundingClientRect();
+      // Account for CSS scaling (canvas.width vs rendered width)
+      const scaleX = canvasEl.width / rect.width;
+      const scaleY = canvasEl.height / rect.height;
+      return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top)  * scaleY
+      };
+    }
+
+    function drawLine(prevX, prevY, x, y, color, size) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = size;
+      ctx.beginPath();
+      ctx.moveTo(prevX, prevY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      localStrokeCount = 0;
+      strokeCountDisplay.textContent = '0';
+    }
+
+    function setCanvasLocked(locked, message = '✋ Only the drawer can draw') {
+      if (locked) {
+        canvas.classList.add('locked');
+        canvas.classList.remove('drawing');
+        canvas.style.pointerEvents = 'none';
+        canvasOverlay.textContent = message;
+        canvasOverlay.classList.add('visible');
+      } else {
+        canvas.classList.remove('locked');
+        canvas.classList.add('drawing');
+        canvas.style.pointerEvents = 'auto';
+        canvasOverlay.classList.remove('visible');
+      }
+    }
+
+    // ── Mouse event handlers ──────────────────────────────────
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (!isDrawer || gameState !== 'playing') return;
+      isDrawing = true;
+      prevPos = getMousePos(canvas, e);
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDrawing || !isDrawer || gameState !== 'playing') return;
+
+      const pos = getMousePos(canvas, e);
+
+      // Draw locally immediately for zero-latency feel
+      drawLine(prevPos.x, prevPos.y, pos.x, pos.y, currentColor, currentSize);
+
+      // Queue stroke — rAF loop will flush to server at ~60 fps
+      strokeQueue.push({
+        x: pos.x,
+        y: pos.y,
+        prevX: prevPos.x,
+        prevY: prevPos.y,
+        color: currentColor,
+        size: currentSize
+      });
+      localStrokeCount++;
+      strokeCountDisplay.textContent = localStrokeCount;
+
+      prevPos = pos;
+    });
+
+    canvas.addEventListener('mouseup', () => { isDrawing = false; });
+    canvas.addEventListener('mouseleave', () => { isDrawing = false; });
+
+    // ── rAF batch sender ─────────────────────────────────────
+    // Flushes strokeQueue to server at display frame rate (~60 fps)
+    // Runs continuously so it never drops a stroke
+    function sendStrokeBatch() {
+      if (strokeQueue.length > 0 && socket && socket.connected && currentRoomId) {
+        socket.emit('draw_stroke_batch', {
+          roomId: currentRoomId,
+          strokes: strokeQueue
+        });
+        strokeQueue = [];
+      }
+      requestAnimationFrame(sendStrokeBatch);
+    }
+    requestAnimationFrame(sendStrokeBatch);
+
+    // Lock canvas on page load until game starts
+    setCanvasLocked(true, '⏸️ Waiting to start');
+
     // DOM Elements
     const connectionStatus = document.getElementById('connection-status');
     const socketIdDisplay = document.getElementById('socket-id');
@@ -399,13 +699,6 @@
     const btnResetGame = document.getElementById('btn-reset-game'); // Phase 3
     const btnSubmitGuess = document.getElementById('btn-submit-guess');
     
-    // Phase 4: Drawing test buttons
-    const btnTestStroke = document.getElementById('btn-test-stroke');
-    const btnSyncStrokes = document.getElementById('btn-sync-strokes');
-    const drawingStatusDisplay = document.getElementById('drawing-status');
-    const strokeCountDisplay = document.getElementById('stroke-count');
-    let testStrokeCount = 0; // Phase 4: track local sent strokes
-
     // Game UI Elements
     const gameStatusDisplay = document.getElementById('game-status');
     const roundInfoDisplay = document.getElementById('round-info');
@@ -520,21 +813,27 @@
           wordDisplay.textContent = 'Word loading...';
           inputGuess.disabled = true;
           btnSubmitGuess.disabled = true;
-          // Phase 4: Enable drawing buttons for drawer
-          btnTestStroke.disabled = false;
+          // Phase 4: unlock canvas for drawer
+          setCanvasLocked(false);
+          btnClearCanvas.disabled = false;
           btnSyncStrokes.disabled = false;
-          drawingStatusDisplay.textContent = 'You are drawer';
+          drawingStatusDisplay.textContent = '🖊️ You are drawing';
           drawingStatusDisplay.style.color = '#2ecc71';
         } else {
           updateGameStatus('🤔 Guess the word!');
           wordDisplay.textContent = '_ _ _ _ _';
           inputGuess.disabled = false;
           btnSubmitGuess.disabled = false;
-          // Phase 4: Disable drawing buttons for guessers
-          btnTestStroke.disabled = true;
-          btnSyncStrokes.disabled = false; // Allow sync for all
-          drawingStatusDisplay.textContent = 'Not drawer';
+          // Phase 4: lock canvas for guessers, allow sync
+          setCanvasLocked(true, '✋ Only the drawer can draw');
+          btnClearCanvas.disabled = true;
+          btnSyncStrokes.disabled = false;
+          drawingStatusDisplay.textContent = '👀 Watching';
           drawingStatusDisplay.style.color = '#95a5a6';
+          // Request existing strokes from server
+          if (socket && socket.connected && currentRoomId) {
+            socket.emit('request_sync_strokes', { roomId: currentRoomId });
+          }
         }
       });
 
@@ -589,9 +888,11 @@
         timerDisplay.textContent = '--';
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
-        // Phase 4: Disable drawing during round end
-        btnTestStroke.disabled = true;
-        drawingStatusDisplay.textContent = 'Round ended';
+        // Phase 4: lock canvas between rounds
+        isDrawing = false;
+        setCanvasLocked(true, '⏸️ Round ended');
+        btnClearCanvas.disabled = true;
+        drawingStatusDisplay.textContent = '⏸️ Between rounds';
         drawingStatusDisplay.style.color = '#e74c3c';
         
         // Show scores
@@ -625,6 +926,12 @@
         inputTotalRounds.disabled = false;
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
+        // Phase 4:
+        isDrawing = false;
+        setCanvasLocked(true, '🏆 Game over');
+        btnClearCanvas.disabled = true;
+        drawingStatusDisplay.textContent = '🏆 Game over';
+        drawingStatusDisplay.style.color = '#f39c12';
       });
 
       // Phase 3: Game reset
@@ -642,6 +949,13 @@
         inputTotalRounds.disabled = false;
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
+        // Phase 4:
+        isDrawing = false;
+        clearCanvas();
+        setCanvasLocked(true, '⏸️ Waiting to start');
+        btnClearCanvas.disabled = true;
+        drawingStatusDisplay.textContent = 'Not drawing';
+        drawingStatusDisplay.style.color = '#888';
       });
 
       socket.on('game_stopped', (data) => {
@@ -658,6 +972,13 @@
         inputTotalRounds.disabled = false;
         inputGuess.disabled = true;
         btnSubmitGuess.disabled = true;
+        // Phase 4:
+        isDrawing = false;
+        clearCanvas();
+        setCanvasLocked(true, '⏸️ Waiting to start');
+        btnClearCanvas.disabled = true;
+        drawingStatusDisplay.textContent = 'Not drawing';
+        drawingStatusDisplay.style.color = '#888';
       });
 
       socket.on('game_error', (data) => {
@@ -668,31 +989,30 @@
       // Phase 4: Drawing Events
       // ============================================
 
-      socket.on('draw_stroke', (data) => {
-        // Log stroke received (no canvas implementation yet)
-        console.log('[Drawing] Stroke received:', {
-          roomId: data.roomId,
-          stroke: data.stroke
+      // Phase 4: Incoming stroke batch from another player (server broadcast)
+      socket.on('draw_stroke_batch', (data) => {
+        data.strokes.forEach(s => {
+          drawLine(s.prevX, s.prevY, s.x, s.y, s.color, s.size);
+          localStrokeCount++;
         });
-        addMessage('system', `🖌️ Stroke received (${data.stroke.color}, size ${data.stroke.size})`);
+        strokeCountDisplay.textContent = localStrokeCount;
       });
 
+      // Phase 4: Replay full stroke history (on join / reconnect)
       socket.on('sync_strokes', (data) => {
-        // Log stroke sync (no canvas implementation yet)
-        console.log('[Drawing] Stroke sync:', {
-          roomId: data.roomId,
-          strokeCount: data.strokes.length
+        clearCanvas();
+        data.strokes.forEach(s => {
+          drawLine(s.prevX, s.prevY, s.x, s.y, s.color, s.size);
         });
-        addMessage('system', `🔄 Synced ${data.strokes.length} strokes from history`);
-        strokeCountDisplay.textContent = data.strokes.length;
+        localStrokeCount = data.strokes.length;
+        strokeCountDisplay.textContent = localStrokeCount;
+        addMessage('system', `🔄 Canvas synced: ${data.strokes.length} stroke(s) replayed`);
       });
 
-      socket.on('clear_canvas', (data) => {
-        // Log canvas clear (no canvas implementation yet)
-        console.log('[Drawing] Canvas cleared:', data.roomId);
+      // Phase 4: Canvas cleared by server (round end)
+      socket.on('clear_canvas', () => {
+        clearCanvas();
         addMessage('system', '🧹 Canvas cleared');
-        strokeCountDisplay.textContent = '0';
-        testStrokeCount = 0;
       });
     }
 
@@ -811,38 +1131,15 @@
       });
     });
 
-    // Phase 4: Drawing test controls
-
-    btnTestStroke.addEventListener('click', () => {
-      if (!currentRoomId) {
-        alert('Please join a room first');
-        return;
-      }
-
-      // Generate random test stroke
-      const testStroke = {
-        x: Math.floor(Math.random() * 500),
-        y: Math.floor(Math.random() * 500),
-        prevX: Math.floor(Math.random() * 500),
-        prevY: Math.floor(Math.random() * 500),
-        color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
-        size: Math.floor(Math.random() * 30) + 5
-      };
-
-      socket.emit('draw_stroke', { 
-        roomId: currentRoomId, 
-        stroke: testStroke 
-      }, (response) => {
-        if (response && response.success) {
-          testStrokeCount++;
-          strokeCountDisplay.textContent = testStrokeCount;
-          console.log('[Drawing] Test stroke sent:', testStroke);
-        } else if (response && response.error) {
-          addMessage('error', `Drawing error: ${response.error}`);
-        }
-      });
+    // Phase 4: Clear canvas button (drawer only — server validates)
+    btnClearCanvas.addEventListener('click', () => {
+      if (!currentRoomId || !isDrawer) return;
+      // Local clear immediately for drawer
+      clearCanvas();
+      // Server will emit clear_canvas back to room (triggered via round end or future event)
     });
 
+    // Phase 4: Manual sync button (all players)
     btnSyncStrokes.addEventListener('click', () => {
       if (!currentRoomId) {
         alert('Please join a room first');

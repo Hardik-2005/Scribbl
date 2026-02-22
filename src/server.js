@@ -2,6 +2,8 @@ import express from 'express';
 import { createServer } from 'http';
 import { initializeSocket } from './config/socket.js';
 import roomManager from './rooms/roomManager.js';
+import { createClient } from "redis";
+import { createAdapter } from "@socket.io/redis-adapter";
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -71,6 +73,23 @@ app.use((err, req, res, next) => {
 // ============================================
 
 const io = initializeSocket(httpServer);
+
+// ============================================
+// Redis Adapter (Socket.IO horizontal scaling)
+// ============================================
+
+const pubClient = createClient({
+  url: "redis://localhost:6379"
+});
+
+const subClient = pubClient.duplicate();
+
+await pubClient.connect();
+await subClient.connect();
+
+io.adapter(createAdapter(pubClient, subClient));
+
+console.log('[Redis] Adapter connected');
 
 // ============================================
 // Start Server
