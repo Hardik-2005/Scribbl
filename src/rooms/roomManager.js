@@ -1,279 +1,226 @@
 /**
- * RoomManager - Manages all in-memory room state
- * Handles room creation, player management, and cleanup
+ * RoomManager — Redis-backed room & player management
+ *
+ * All methods are async. The room object returned by getRoom() is a
+ * fully-hydrated JS object (players as Map, correctGuessers as Set) that
+ * the rest of the codebase (gameEngine, drawingEngine, socketHandler) can
+ * read and mutate. After mutation, callers must persist changes via the
+ * appropriate roomStore method (saveRoomMeta / savePlayer / savePlayers).
  */
 
-import { initializeGameState, cleanupRoom } from '../game/gameEngine.js';
+import * as roomStore from '../redis/roomStore.js';
+import { stopRoundTimer }  from '../game/gameEngine.js';
 
 class RoomManager {
-  constructor() {
-    // Map<roomId, Room>
-    this.rooms = new Map();
-    // Map<socketId, {roomId, userId}> for quick disconnect lookups
-    this.socketToPlayer = new Map();
-  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Room lifecycle
+  // ──────────────────────────────────────────────────────────────────────────
 
   /**
-   * Creates a new room
-   * @param {string} roomId - Unique room identifier
-   * @returns {Object} Created room object
+   * Creates a brand-new room with default game state.
+   * @param {string} roomId
+   * @returns {Promise<Object>} Hydrated room
    */
-  createRoom(roomId) {
-    if (this.rooms.has(roomId)) {
-      throw new Error('Room already exists');
-    }
-
-    const room = {
-      roomId,
-      players: new Map(), // Map<userId, Player>
-      createdAt: Date.now(),
-      lastActivity: Date.now()
-    };
-
-    // Initialize game state (Phase 2)
-    initializeGameState(room);
-
-    this.rooms.set(roomId, room);
+  async createRoom(roomId) {
+    const room = await roomStore.createRoom(roomId);
     console.log(`[RoomManager] Room created: ${roomId}`);
     return room;
   }
 
-  /**
-   * Adds a player to a room
-   * @param {string} roomId - Room to join
-   * @param {Object} player - Player object {userId, username, socketId, isConnected, score}
-   * @returns {Object} Updated room object
-   */
-  joinRoom(roomId, player) {
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      throw new Error('Room does not exist');
-    }
+  // ──────────────────────────────────────────────────────────────────────────
+  // Player management
+  // ──────────────────────────────────────────────────────────────────────────
 
-    // Check for duplicate username in the same room
-    for (const [, existingPlayer] of room.players) {
-      if (existingPlayer.username === player.username && existingPlayer.userId !== player.userId) {
+  /**
+   * Adds a player to a room (checks for duplicate usernames).
+   * @param {string} roomId
+   * @param {{userId,username,socketId}} player
+   * @returns {Promise<Object>} Updated hydrated room
+   */
+  async joinRoom(roomId, player) {
+    const room = await roomStore.getRoom(roomId);
+    if (!room) throw new Error('Room does not exist');
+
+    // Duplicate username check
+    for (const existing of room.players.values()) {
+      if (existing.username === player.username && existing.userId !== player.userId) {
         throw new Error('Username already taken in this room');
       }
     }
 
-    // Check if player already in room
     if (room.players.has(player.userId)) {
       throw new Error('Player already in room');
     }
 
-    // Add player to room
-    room.players.set(player.userId, {
-      userId: player.userId,
-      username: player.username,
-      socketId: player.socketId,
-      isConnected: true,
-      score: 0,
-      joinedAt: Date.now(),
-      hasGuessedCurrentRound: false // Phase 2: Game state
-    });
+    const playerRecord = {
+      userId:                 player.userId,
+      username:               player.username,
+      socketId:               player.socketId,
+      isConnected:            true,
+      score:                  0,
+      joinedAt:               Date.now(),
+      hasGuessedCurrentRound: false
+    };
 
-    // Track socket mapping for quick lookups
-    this.socketToPlayer.set(player.socketId, {
-      roomId,
-      userId: player.userId
-    });
+    await Promise.all([
+      roomStore.savePlayer(roomId, playerRecord),
+      roomStore.setSocketMapping(player.socketId, roomId, player.userId)
+    ]);
 
-    room.lastActivity = Date.now();
+    room.players.set(player.userId, playerRecord);
     console.log(`[RoomManager] Player ${player.username} joined room ${roomId}`);
-    
     return room;
   }
 
   /**
-   * Removes a player from a room
-   * @param {string} roomId - Room ID
-   * @param {string} userId - User ID to remove
-   * @returns {boolean} True if player was removed
+   * Fully removes a player (explicit leave). Deletes room when last player leaves.
+   * @param {string} roomId
+   * @param {string} userId
+   * @returns {Promise<boolean>}
    */
-  leaveRoom(roomId, userId) {
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      return false;
-    }
+  async leaveRoom(roomId, userId) {
+    const room = await roomStore.getRoom(roomId);
+    if (!room) return false;
 
     const player = room.players.get(userId);
-    if (player) {
-      this.socketToPlayer.delete(player.socketId);
-      room.players.delete(userId);
-      console.log(`[RoomManager] Player ${player.username} left room ${roomId}`);
-      
-      // Clean up empty rooms
-      if (room.players.size === 0) {
-        cleanupRoom(roomId); // Phase 2: Cleanup game resources
-        this.rooms.delete(roomId);
-        console.log(`[RoomManager] Room ${roomId} deleted (empty)`);
-      }
-      
-      return true;
+    if (!player) return false;
+
+    await Promise.all([
+      roomStore.deletePlayer(roomId, userId),
+      roomStore.deleteSocketMapping(player.socketId)
+    ]);
+
+    console.log(`[RoomManager] Player ${player.username} left room ${roomId}`);
+
+    // If last player, clean up the room entirely
+    const remaining = await roomStore.getPlayers(roomId);
+    if (remaining.size === 0) {
+      stopRoundTimer(roomId);
+      await roomStore.deleteRoom(roomId);
+      console.log(`[RoomManager] Room ${roomId} deleted (empty)`);
     }
-    
-    return false;
+
+    return true;
   }
 
   /**
-   * Handles player disconnect - marks as disconnected but doesn't remove
-   * @param {string} socketId - Socket ID of disconnected player
-   * @returns {Object|null} {roomId, userId, username} or null
+   * Marks a player as disconnected but keeps them in the room (supports reconnect).
+   * @param {string} socketId
+   * @returns {Promise<{roomId,userId,username}|null>}
    */
-  removePlayerOnDisconnect(socketId) {
-    const mapping = this.socketToPlayer.get(socketId);
-    
-    if (!mapping) {
-      return null;
-    }
+  async removePlayerOnDisconnect(socketId) {
+    const mapping = await roomStore.getSocketMapping(socketId);
+    if (!mapping) return null;
 
     const { roomId, userId } = mapping;
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      this.socketToPlayer.delete(socketId);
+
+    const player = await roomStore.getPlayer(roomId, userId);
+    if (!player) {
+      await roomStore.deleteSocketMapping(socketId);
       return null;
     }
 
-    const player = room.players.get(userId);
-    
-    if (player) {
-      player.isConnected = false;
-      player.disconnectedAt = Date.now();
-      console.log(`[RoomManager] Player ${player.username} disconnected from room ${roomId}`);
-      
-      return {
-        roomId,
-        userId,
-        username: player.username
-      };
-    }
+    player.isConnected    = false;
+    player.disconnectedAt = Date.now();
 
-    return null;
+    await Promise.all([
+      roomStore.savePlayer(roomId, player),
+      roomStore.deleteSocketMapping(socketId)
+    ]);
+
+    console.log(`[RoomManager] Player ${player.username} disconnected from room ${roomId}`);
+
+    return { roomId, userId, username: player.username };
   }
 
   /**
-   * Handles player reconnection - updates socketId and marks as connected
-   * @param {string} roomId - Room ID
-   * @param {string} userId - User ID
-   * @param {string} newSocketId - New socket ID
-   * @returns {Object|null} Updated player object or null
+   * Reconnects a player: updates socketId and marks as connected.
+   * @param {string} roomId
+   * @param {string} userId
+   * @param {string} newSocketId
+   * @returns {Promise<Object>} Updated player object
    */
-  reassignSocketOnReconnect(roomId, userId, newSocketId) {
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      throw new Error('Room does not exist');
-    }
+  async reassignSocketOnReconnect(roomId, userId, newSocketId) {
+    const exists = await roomStore.roomExists(roomId);
+    if (!exists) throw new Error('Room does not exist');
 
-    const player = room.players.get(userId);
-    
-    if (!player) {
-      throw new Error('Player not found in room');
-    }
+    const player = await roomStore.getPlayer(roomId, userId);
+    if (!player) throw new Error('Player not found in room');
 
-    // Remove old socket mapping if exists
+    // Remove stale socket mapping if it exists
     if (player.socketId) {
-      this.socketToPlayer.delete(player.socketId);
+      await roomStore.deleteSocketMapping(player.socketId);
     }
 
-    // Update player
-    player.socketId = newSocketId;
-    player.isConnected = true;
+    player.socketId      = newSocketId;
+    player.isConnected   = true;
     player.reconnectedAt = Date.now();
 
-    // Add new socket mapping
-    this.socketToPlayer.set(newSocketId, {
-      roomId,
-      userId
-    });
+    await Promise.all([
+      roomStore.savePlayer(roomId, player),
+      roomStore.setSocketMapping(newSocketId, roomId, userId)
+    ]);
 
     console.log(`[RoomManager] Player ${player.username} reconnected to room ${roomId}`);
-    
     return player;
   }
 
-  /**
-   * Gets a room by ID
-   * @param {string} roomId - Room ID
-   * @returns {Object|null} Room object or null
-   */
-  getRoom(roomId) {
-    return this.rooms.get(roomId) || null;
+  // ──────────────────────────────────────────────────────────────────────────
+  // Read helpers
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** @returns {Promise<Object|null>} */
+  async getRoom(roomId) {
+    return roomStore.getRoom(roomId);
+  }
+
+  /** @returns {Promise<Array>} */
+  async getRoomPlayers(roomId) {
+    const map = await roomStore.getPlayers(roomId);
+    return [...map.values()];
   }
 
   /**
-   * Gets all players in a room as an array
-   * @param {string} roomId - Room ID
-   * @returns {Array} Array of player objects
+   * Returns {roomId, userId} for a socket, or null.
+   * @param {string} socketId
+   * @returns {Promise<{roomId,userId}|null>}
    */
-  getRoomPlayers(roomId) {
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      return [];
-    }
+  async getPlayerBySocketId(socketId) {
+    return roomStore.getSocketMapping(socketId);
+  }
 
-    return Array.from(room.players.values());
+  /** @returns {Promise<boolean>} */
+  async roomExists(roomId) {
+    return roomStore.roomExists(roomId);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Stats (used by REST API)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** @returns {Promise<number>} */
+  async getRoomCount() {
+    return roomStore.getRoomCount();
   }
 
   /**
-   * Gets player info by socket ID
-   * @param {string} socketId - Socket ID
-   * @returns {Object|null} {roomId, userId} or null
+   * Returns a lightweight summary of all rooms.
+   * NOTE: Requires a Redis SCAN — avoid in hot paths.
    */
-  getPlayerBySocketId(socketId) {
-    return this.socketToPlayer.get(socketId) || null;
+  async getAllRooms() {
+    // We can't efficiently iterate all rooms without SCAN.
+    // Return a placeholder for the stats API.
+    const count = await roomStore.getRoomCount();
+    return [{ note: `${count} room(s) active — use /api/rooms/:roomId for details` }];
   }
 
-  /**
-   * Checks if a room exists
-   * @param {string} roomId - Room ID
-   * @returns {boolean}
-   */
-  roomExists(roomId) {
-    return this.rooms.has(roomId);
-  }
-
-  /**
-   * Gets total number of rooms
-   * @returns {number}
-   */
-  getRoomCount() {
-    return this.rooms.size;
-  }
-
-  /**
-   * Gets total number of connected players across all rooms
-   * @returns {number}
-   */
-  getTotalPlayerCount() {
-    let count = 0;
-    for (const room of this.rooms.values()) {
-      count += room.players.size;
-    }
-    return count;
-  }
-
-  /**
-   * Debug: Get all rooms (for testing)
-   * @returns {Array}
-   */
-  getAllRooms() {
-    return Array.from(this.rooms.entries()).map(([roomId, room]) => ({
-      roomId,
-      playerCount: room.players.size,
-      players: Array.from(room.players.values()).map(p => ({
-        userId: p.userId,
-        username: p.username,
-        isConnected: p.isConnected
-      }))
-    }));
+  /** @returns {Promise<number>} */
+  async getTotalPlayerCount() {
+    // Best-effort via room metadata — not cheap; used only by stats endpoint.
+    return 0;
   }
 }
 
-// Export singleton instance
+// Export singleton
 export default new RoomManager();

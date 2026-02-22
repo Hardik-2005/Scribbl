@@ -1,25 +1,17 @@
-import roomManager from '../rooms/roomManager.js';
+﻿import roomManager from '../rooms/roomManager.js';
 import { generateUserId } from '../utils/idGenerator.js';
 import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, resetGame } from '../game/gameEngine.js';
 
 /**
- * Socket event handler
- * Manages all socket.io events and room interactions
- */
-
-/**
- * Registers all socket event handlers for a connected client
- * @param {Object} io - Socket.IO server instance
- * @param {Object} socket - Socket.IO socket instance
+ * Socket event handler â€” all callbacks are async to support Redis-backed roomManager.
  */
 export function handleSocketConnection(io, socket) {
   console.log(`[Socket] Client connected: ${socket.id}`);
 
   // ============================================
   // Event: create_room
-  // Creates a new room
   // ============================================
-  socket.on('create_room', (payload, callback) => {
+  socket.on('create_room', async (payload, callback) => {
     try {
       const { roomId } = payload;
 
@@ -30,24 +22,16 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if room already exists
-      if (roomManager.roomExists(roomId)) {
+      if (await roomManager.roomExists(roomId)) {
         const error = { success: false, error: 'Room already exists' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
 
-      // Create room
-      const room = roomManager.createRoom(roomId);
+      const room = await roomManager.createRoom(roomId);
 
-      // Send success response
-      const response = { 
-        success: true, 
-        roomId: room.roomId,
-        message: 'Room created successfully'
-      };
-      
+      const response = { success: true, roomId: room.roomId, message: 'Room created successfully' };
       socket.emit('room_created', response);
       if (callback) callback(response);
 
@@ -61,20 +45,17 @@ export function handleSocketConnection(io, socket) {
 
   // ============================================
   // Event: join_room
-  // Joins an existing room
   // ============================================
-  socket.on('join_room', (payload, callback) => {
+  socket.on('join_room', async (payload, callback) => {
     try {
       const { roomId, username } = payload;
 
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
-
       if (!username || typeof username !== 'string' || username.trim().length === 0) {
         const error = { success: false, error: 'Invalid username' };
         socket.emit('room_error', error);
@@ -82,56 +63,28 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if room exists
-      if (!roomManager.roomExists(roomId)) {
+      if (!(await roomManager.roomExists(roomId))) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
 
-      // Generate user ID
       const userId = generateUserId();
+      const player = { userId, username: username.trim(), socketId: socket.id, isConnected: true, score: 0 };
 
-      // Create player object
-      const player = {
-        userId,
-        username: username.trim(),
-        socketId: socket.id,
-        isConnected: true,
-        score: 0
-      };
-
-      // Join room
-      roomManager.joinRoom(roomId, player);
-
-      // Join socket.io room
+      await roomManager.joinRoom(roomId, player);
       socket.join(roomId);
 
-      // Get updated player list
-      const players = roomManager.getRoomPlayers(roomId);
+      const players = await roomManager.getRoomPlayers(roomId);
 
-      // Send success to the joining player
-      const response = {
-        success: true,
-        roomId,
-        userId,
-        username: player.username,
-        message: 'Joined room successfully'
-      };
-      
+      const response = { success: true, roomId, userId, username: player.username, message: 'Joined room successfully' };
       socket.emit('room_joined', response);
       if (callback) callback(response);
 
-      // Broadcast updated player list to all in room
       io.to(roomId).emit('player_list_update', {
         roomId,
-        players: players.map(p => ({
-          userId: p.userId,
-          username: p.username,
-          isConnected: p.isConnected,
-          score: p.score
-        }))
+        players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
       });
 
       console.log(`[Socket] ${username} joined room ${roomId}`);
@@ -146,20 +99,17 @@ export function handleSocketConnection(io, socket) {
 
   // ============================================
   // Event: send_message
-  // Broadcasts a message to all players in room
   // ============================================
-  socket.on('send_message', (payload, callback) => {
+  socket.on('send_message', async (payload, callback) => {
     try {
       const { roomId, message } = payload;
 
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
-
       if (!message || typeof message !== 'string') {
         const error = { success: false, error: 'Invalid message' };
         socket.emit('room_error', error);
@@ -167,17 +117,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if room exists
-      if (!roomManager.roomExists(roomId)) {
+      if (!(await roomManager.roomExists(roomId))) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
 
-      // Get player info
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
-      
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo) {
         const error = { success: false, error: 'Player not in any room' };
         socket.emit('room_error', error);
@@ -185,19 +132,17 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      const room = roomManager.getRoom(roomId);
+      const room   = await roomManager.getRoom(roomId);
       const player = room.players.get(playerInfo.userId);
 
-      // Broadcast message to all in room
       io.to(roomId).emit('receive_message', {
         roomId,
-        userId: player.userId,
-        username: player.username,
-        message: message.trim(),
+        userId:    player.userId,
+        username:  player.username,
+        message:   message.trim(),
         timestamp: Date.now()
       });
 
-      // Send acknowledgment
       if (callback) callback({ success: true });
 
     } catch (error) {
@@ -210,20 +155,17 @@ export function handleSocketConnection(io, socket) {
 
   // ============================================
   // Event: reconnect_player
-  // Handles player reconnection with existing userId
   // ============================================
-  socket.on('reconnect_player', (payload, callback) => {
+  socket.on('reconnect_player', async (payload, callback) => {
     try {
       const { roomId, userId } = payload;
 
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
-
       if (!userId || typeof userId !== 'string') {
         const error = { success: false, error: 'Invalid user ID' };
         socket.emit('room_error', error);
@@ -231,44 +173,19 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Reconnect player
-      const player = roomManager.reassignSocketOnReconnect(roomId, userId, socket.id);
-
-      // Join socket.io room
+      const player  = await roomManager.reassignSocketOnReconnect(roomId, userId, socket.id);
       socket.join(roomId);
 
-      // Get updated player list
-      const players = roomManager.getRoomPlayers(roomId);
+      const players = await roomManager.getRoomPlayers(roomId);
 
-      // Send success to reconnected player
-      const response = {
-        success: true,
-        roomId,
-        userId: player.userId,
-        username: player.username,
-        message: 'Reconnected successfully'
-      };
-      
+      const response = { success: true, roomId, userId: player.userId, username: player.username, message: 'Reconnected successfully' };
       socket.emit('room_joined', response);
       if (callback) callback(response);
 
-      // Broadcast reconnection to all in room
-      io.to(roomId).emit('player_reconnected', {
-        roomId,
-        userId: player.userId,
-        username: player.username,
-        timestamp: Date.now()
-      });
-
-      // Broadcast updated player list
+      io.to(roomId).emit('player_reconnected', { roomId, userId: player.userId, username: player.username, timestamp: Date.now() });
       io.to(roomId).emit('player_list_update', {
         roomId,
-        players: players.map(p => ({
-          userId: p.userId,
-          username: p.username,
-          isConnected: p.isConnected,
-          score: p.score
-        }))
+        players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
       });
 
       console.log(`[Socket] ${player.username} reconnected to room ${roomId}`);
@@ -282,14 +199,12 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
-  // Event: start_game (Phase 3: with configurable rounds)
-  // Starts the game in a room
+  // Event: start_game
   // ============================================
-  socket.on('start_game', (payload, callback) => {
+  socket.on('start_game', async (payload, callback) => {
     try {
       const { roomId, totalRounds } = payload;
 
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('game_error', error);
@@ -297,8 +212,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Phase 3: Validate totalRounds
-      const rounds = totalRounds || 3; // Default to 3 if not provided
+      const rounds = totalRounds || 3;
       if (typeof rounds !== 'number' || rounds < 1 || rounds > 10) {
         const error = { success: false, error: 'Total rounds must be between 1 and 10' };
         socket.emit('game_error', error);
@@ -306,8 +220,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if room exists
-      const room = roomManager.getRoom(roomId);
+      const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
@@ -315,7 +228,6 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Phase 3: Strict state validation
       if (room.gameState === 'playing' || room.gameState === 'round_end') {
         const error = { success: false, error: 'Game already in progress' };
         socket.emit('game_error', error);
@@ -323,8 +235,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if player is in the room
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -332,9 +243,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Start game with configured rounds
-      const result = startGame(room, rounds, io);
-
+      const result = await startGame(room, rounds, io);
       if (!result.success) {
         const error = { success: false, error: result.error };
         socket.emit('game_error', error);
@@ -342,9 +251,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Send success response
       if (callback) callback({ success: true, message: 'Game started', totalRounds: rounds });
-
       console.log(`[Socket] Game started in room ${roomId} with ${rounds} rounds`);
 
     } catch (error) {
@@ -356,21 +263,18 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
-  // Event: submit_guess (Phase 3: Hide correct guesses, close guess detection)
-  // Handles player guess submissions
+  // Event: submit_guess
   // ============================================
-  socket.on('submit_guess', (payload, callback) => {
+  socket.on('submit_guess', async (payload, callback) => {
     try {
       const { roomId, guess } = payload;
 
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
       if (!guess || typeof guess !== 'string' || guess.trim().length === 0) {
         const error = { success: false, error: 'Invalid guess' };
         socket.emit('game_error', error);
@@ -378,16 +282,13 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Get room
-      const room = roomManager.getRoom(roomId);
+      const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
-      // Phase 3: Strict state validation
       if (room.gameState !== 'playing') {
         const error = { success: false, error: 'Game is not in progress' };
         socket.emit('game_error', error);
@@ -395,8 +296,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Get player info
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -405,9 +305,7 @@ export function handleSocketConnection(io, socket) {
       }
 
       const player = room.players.get(playerInfo.userId);
-
-      // Phase 3: Handle guess through game engine (pass socket for close guess)
-      const result = handleGuess(room, playerInfo.userId, guess, io, socket);
+      const result = await handleGuess(room, playerInfo.userId, guess, io, socket);
 
       if (!result.success) {
         const error = { success: false, error: result.error };
@@ -416,24 +314,18 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Phase 3: Only broadcast incorrect/close guesses to chat
-      // Correct guesses are NOT shown in chat (word stays hidden)
+      // Broadcast incorrect/non-close guesses to chat (word stays hidden)
       if (!result.correct && !result.close) {
         io.to(roomId).emit('receive_message', {
           roomId,
-          userId: player.userId,
-          username: player.username,
-          message: guess.trim(),
+          userId:    player.userId,
+          username:  player.username,
+          message:   guess.trim(),
           timestamp: Date.now()
         });
       }
 
-      // Send acknowledgment
-      if (callback) callback({ 
-        success: true, 
-        correct: result.correct,
-        close: result.close || false
-      });
+      if (callback) callback({ success: true, correct: result.correct, close: result.close || false });
 
     } catch (error) {
       console.error('[Socket] Error submitting guess:', error.message);
@@ -447,13 +339,10 @@ export function handleSocketConnection(io, socket) {
   // Phase 4: Drawing Events
   // ============================================
 
-  // Event: draw_stroke
-  // Handles drawing strokes from the drawer
-  socket.on('draw_stroke', (payload, callback) => {
+  // Event: draw_stroke (single â€” kept for backward compat)
+  socket.on('draw_stroke', async (payload, callback) => {
     try {
       const { roomId, stroke } = payload;
-
-      // Validate payload
       if (!roomId || !stroke) {
         const error = { success: false, error: 'roomId and stroke are required' };
         socket.emit('game_error', error);
@@ -461,17 +350,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Get room
-      const room = roomManager.getRoom(roomId);
+      const room       = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
-      // Get player info
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -479,24 +365,16 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Import drawingEngine
-      import('../game/drawingEngine.js').then(({ handleDrawStroke }) => {
-        const result = handleDrawStroke(room, playerInfo.userId, stroke, socket, io);
+      const { handleDrawStroke } = await import('../game/drawingEngine.js');
+      const result = await handleDrawStroke(room, playerInfo.userId, stroke, socket, io);
 
-        // Only send error if not throttled
-        if (!result.success && !result.throttled) {
-          const error = { success: false, error: result.error };
-          socket.emit('game_error', error);
-          if (callback) callback(error);
-        } else if (result.success && callback) {
-          callback({ success: true });
-        }
-      }).catch(err => {
-        console.error('[Socket] Error loading drawingEngine:', err.message);
-        const error = { success: false, error: 'Internal server error' };
+      if (!result.success) {
+        const error = { success: false, error: result.error };
         socket.emit('game_error', error);
         if (callback) callback(error);
-      });
+      } else if (callback) {
+        callback({ success: true });
+      }
 
     } catch (error) {
       console.error('[Socket] Error handling draw stroke:', error.message);
@@ -506,21 +384,16 @@ export function handleSocketConnection(io, socket) {
     }
   });
 
-  // Event: draw_stroke_batch
-  // Handles a rAF-batched array of strokes from the drawer
-  socket.on('draw_stroke_batch', (payload, callback) => {
+  // Event: draw_stroke_batch (rAF-batched â€” primary drawing path)
+  socket.on('draw_stroke_batch', async (payload, callback) => {
     try {
       const { roomId, strokes } = payload;
-
-      // Validate payload
       if (!roomId || !Array.isArray(strokes)) {
         const error = { success: false, error: 'roomId and strokes array are required' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
-      // Guard against oversized batches
       if (strokes.length > 200) {
         const error = { success: false, error: 'Batch too large (max 200 strokes)' };
         socket.emit('game_error', error);
@@ -528,17 +401,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Get room
-      const room = roomManager.getRoom(roomId);
+      const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
-      // Get player info
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -546,23 +416,16 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Import drawingEngine
-      import('../game/drawingEngine.js').then(({ handleDrawStrokeBatch }) => {
-        const result = handleDrawStrokeBatch(room, playerInfo.userId, strokes, socket, io);
+      const { handleDrawStrokeBatch } = await import('../game/drawingEngine.js');
+      const result = await handleDrawStrokeBatch(room, playerInfo.userId, strokes, socket, io);
 
-        if (!result.success) {
-          const error = { success: false, error: result.error };
-          socket.emit('game_error', error);
-          if (callback) callback(error);
-        } else if (callback) {
-          callback({ success: true, accepted: result.accepted, rejected: result.rejected });
-        }
-      }).catch(err => {
-        console.error('[Socket] Error loading drawingEngine:', err.message);
-        const error = { success: false, error: 'Internal server error' };
+      if (!result.success) {
+        const error = { success: false, error: result.error };
         socket.emit('game_error', error);
         if (callback) callback(error);
-      });
+      } else if (callback) {
+        callback({ success: true, accepted: result.accepted, rejected: result.rejected });
+      }
 
     } catch (error) {
       console.error('[Socket] Error handling draw stroke batch:', error.message);
@@ -573,12 +436,9 @@ export function handleSocketConnection(io, socket) {
   });
 
   // Event: request_sync_strokes
-  // Syncs stroke history to client (on join/reconnect)
-  socket.on('request_sync_strokes', (payload, callback) => {
+  socket.on('request_sync_strokes', async (payload, callback) => {
     try {
       const { roomId } = payload;
-
-      // Validate payload
       if (!roomId) {
         const error = { success: false, error: 'roomId is required' };
         socket.emit('game_error', error);
@@ -586,17 +446,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Get room
-      const room = roomManager.getRoom(roomId);
+      const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
         if (callback) callback(error);
         return;
       }
-
-      // Get player info
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -604,22 +461,10 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Import drawingEngine
-      import('../game/drawingEngine.js').then(({ syncStrokes }) => {
-        const result = syncStrokes(room, socket);
+      const { syncStrokes } = await import('../game/drawingEngine.js');
+      const result = await syncStrokes(room, socket);
 
-        if (callback) {
-          callback({ 
-            success: result.success, 
-            strokeCount: result.strokeCount || 0
-          });
-        }
-      }).catch(err => {
-        console.error('[Socket] Error loading drawingEngine:', err.message);
-        const error = { success: false, error: 'Internal server error' };
-        socket.emit('game_error', error);
-        if (callback) callback(error);
-      });
+      if (callback) callback({ success: result.success, strokeCount: result.strokeCount || 0 });
 
     } catch (error) {
       console.error('[Socket] Error syncing strokes:', error.message);
@@ -630,14 +475,11 @@ export function handleSocketConnection(io, socket) {
   });
 
   // ============================================
-  // Event: reset_game (Phase 3)
-  // Resets game state and scores
+  // Event: reset_game
   // ============================================
-  socket.on('reset_game', (payload, callback) => {
+  socket.on('reset_game', async (payload, callback) => {
     try {
       const { roomId } = payload;
-
-      // Validation
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
         socket.emit('game_error', error);
@@ -645,8 +487,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if room exists
-      const room = roomManager.getRoom(roomId);
+      const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('game_error', error);
@@ -654,8 +495,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Check if player is in the room
-      const playerInfo = roomManager.getPlayerBySocketId(socket.id);
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
       if (!playerInfo || playerInfo.roomId !== roomId) {
         const error = { success: false, error: 'You are not in this room' };
         socket.emit('game_error', error);
@@ -663,9 +503,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Reset game
-      const result = resetGame(room, io);
-
+      const result = await resetGame(room, io);
       if (!result.success) {
         const error = { success: false, error: result.error };
         socket.emit('game_error', error);
@@ -673,9 +511,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      // Send success response
       if (callback) callback({ success: true, message: 'Game reset' });
-
       console.log(`[Socket] Game reset in room ${roomId}`);
 
     } catch (error) {
@@ -688,49 +524,27 @@ export function handleSocketConnection(io, socket) {
 
   // ============================================
   // Event: disconnect
-  // Handles client disconnect
   // ============================================
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', async (reason) => {
     console.log(`[Socket] Client disconnected: ${socket.id}, reason: ${reason}`);
-
     try {
-      // Mark player as disconnected
-      const disconnectInfo = roomManager.removePlayerOnDisconnect(socket.id);
+      const disconnectInfo = await roomManager.removePlayerOnDisconnect(socket.id);
 
       if (disconnectInfo) {
         const { roomId, userId, username } = disconnectInfo;
-
-        // Get room
-        const room = roomManager.getRoom(roomId);
+        const room = await roomManager.getRoom(roomId);
 
         if (room) {
-          // Phase 2: Handle drawer disconnect during game
-          handleDrawerDisconnect(room, userId, io);
-
-          // Phase 2: Check if game should stop due to insufficient players
-          checkPlayerCount(room, io);
+          await handleDrawerDisconnect(room, userId, io);
+          await checkPlayerCount(room, io);
         }
 
-        // Get updated player list
-        const players = roomManager.getRoomPlayers(roomId);
+        const players = await roomManager.getRoomPlayers(roomId);
 
-        // Broadcast disconnection to room
-        socket.to(roomId).emit('player_disconnected', {
-          roomId,
-          userId,
-          username,
-          timestamp: Date.now()
-        });
-
-        // Broadcast updated player list
+        socket.to(roomId).emit('player_disconnected', { roomId, userId, username, timestamp: Date.now() });
         io.to(roomId).emit('player_list_update', {
           roomId,
-          players: players.map(p => ({
-            userId: p.userId,
-            username: p.username,
-            isConnected: p.isConnected,
-            score: p.score
-          }))
+          players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
         });
 
         console.log(`[Socket] Player ${username} marked as disconnected in room ${roomId}`);
@@ -742,7 +556,6 @@ export function handleSocketConnection(io, socket) {
 
   // ============================================
   // Event: error
-  // Handles socket errors
   // ============================================
   socket.on('error', (error) => {
     console.error(`[Socket] Socket error on ${socket.id}:`, error);

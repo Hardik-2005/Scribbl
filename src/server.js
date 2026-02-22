@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { initializeSocket } from './config/socket.js';
 import roomManager from './rooms/roomManager.js';
-import { createClient } from "redis";
+import { connectRedis } from './redis/redisClient.js';
 import { createAdapter } from "@socket.io/redis-adapter";
 
 // Configuration
@@ -28,33 +28,44 @@ app.get('/health', (req, res) => {
 });
 
 // Get server stats
-app.get('/api/stats', (req, res) => {
-  res.json({
-    totalRooms: roomManager.getRoomCount(),
-    totalPlayers: roomManager.getTotalPlayerCount(),
-    rooms: roomManager.getAllRooms()
-  });
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [totalRooms, allRooms] = await Promise.all([
+      roomManager.getRoomCount(),
+      roomManager.getAllRooms()
+    ]);
+    res.json({ totalRooms, rooms: allRooms });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
 });
 
 // Get specific room info
-app.get('/api/rooms/:roomId', (req, res) => {
-  const { roomId } = req.params;
-  const room = roomManager.getRoom(roomId);
-  
-  if (!room) {
-    return res.status(404).json({ error: 'Room not found' });
-  }
+app.get('/api/rooms/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const [room, players] = await Promise.all([
+      roomManager.getRoom(roomId),
+      roomManager.getRoomPlayers(roomId)
+    ]);
 
-  res.json({
-    roomId: room.roomId,
-    playerCount: room.players.size,
-    players: roomManager.getRoomPlayers(roomId).map(p => ({
-      userId: p.userId,
-      username: p.username,
-      isConnected: p.isConnected,
-      score: p.score
-    }))
-  });
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    res.json({
+      roomId: room.roomId,
+      playerCount: players.length,
+      players: players.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        isConnected: p.isConnected,
+        score: p.score
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch room' });
+  }
 });
 
 // 404 handler
@@ -78,13 +89,8 @@ const io = initializeSocket(httpServer);
 // Redis Adapter (Socket.IO horizontal scaling)
 // ============================================
 
-const pubClient = createClient({
-  url: "redis://localhost:6379"
-});
-
+const pubClient = await connectRedis();
 const subClient = pubClient.duplicate();
-
-await pubClient.connect();
 await subClient.connect();
 
 io.adapter(createAdapter(pubClient, subClient));
