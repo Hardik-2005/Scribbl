@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scribble Game - WebSocket Test Client</title>
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: white;
+      text-align: center;
+      margin-bottom: 30px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    .panel h2 {
+      color: #667eea;
+      margin-bottom: 15px;
+      font-size: 20px;
+    }
+
+    .status {
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+
+    .status.disconnected {
+      background: #fee;
+      color: #c33;
+    }
+
+    .status.connected {
+      background: #efe;
+      color: #3c3;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #5568d3;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .chat-panel {
+      grid-column: 1 / -1;
+    }
+
+    .messages {
+      height: 300px;
+      overflow-y: auto;
+      border: 2px solid #ddd;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 15px;
+      background: #f9f9f9;
+    }
+
+    .message {
+      margin-bottom: 10px;
+      padding: 8px;
+      background: white;
+      border-radius: 6px;
+      border-left: 3px solid #667eea;
+    }
+
+    .message.system {
+      border-left-color: #f39c12;
+      background: #fef9e7;
+    }
+
+    .message.error {
+      border-left-color: #e74c3c;
+      background: #fadbd8;
+    }
+
+    .message .username {
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .message .timestamp {
+      font-size: 11px;
+      color: #999;
+      margin-left: 10px;
+    }
+
+    .players-list {
+      list-style: none;
+    }
+
+    .player-item {
+      padding: 10px;
+      margin-bottom: 8px;
+      background: #f7f7f7;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .player-item .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+    }
+
+    .player-item .status-dot.online {
+      background: #2ecc71;
+    }
+
+    .player-item .status-dot.offline {
+      background: #e74c3c;
+    }
+
+    .info-display {
+      background: #f0f0f0;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 13px;
+    }
+
+    .info-display strong {
+      color: #667eea;
+    }
+
+    .game-panel {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      text-align: center;
+    }
+
+    .game-panel h2 {
+      color: white;
+    }
+
+    .game-status {
+      font-size: 18px;
+      font-weight: bold;
+      padding: 15px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 6px;
+      margin-bottom: 15px;
+    }
+
+    .timer-display {
+      font-size: 48px;
+      font-weight: bold;
+      margin: 20px 0;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .word-display {
+      font-size: 32px;
+      font-weight: bold;
+      letter-spacing: 5px;
+      margin: 20px 0;
+      padding: 20px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 6px;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .round-info {
+      font-size: 14px;
+      margin-bottom: 15px;
+      opacity: 0.9;
+    }
+
+    .btn-start-game {
+      background: #2ecc71;
+      font-size: 16px;
+      padding: 15px;
+    }
+
+    .btn-start-game:hover {
+      background: #27ae60;
+    }
+
+    .guess-section {
+      margin-top: 15px;
+    }
+
+    @media (max-width: 768px) {
+      .panels {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 Scribble Game - WebSocket Test Client</h1>
+
+    <div class="panels">
+      <!-- Connection Panel -->
+      <div class="panel">
+        <h2>Connection</h2>
+        <div id="connection-status" class="status disconnected">
+          ⚫ Disconnected
+        </div>
+        <div class="info-display">
+          <strong>Socket ID:</strong> <span id="socket-id">-</span><br>
+          <strong>User ID:</strong> <span id="user-id">-</span>
+        </div>
+        <button id="btn-connect">Connect to Server</button>
+      </div>
+
+      <!-- Room Panel -->
+      <div class="panel">
+        <h2>Room Actions</h2>
+        <div class="form-group">
+          <label>Room ID:</label>
+          <input type="text" id="input-room-id" placeholder="e.g., game-123">
+        </div>
+        <div class="form-group">
+          <label>Username:</label>
+          <input type="text" id="input-username" placeholder="e.g., Player1">
+        </div>
+        <button id="btn-create-room" disabled>Create Room</button>
+        <button id="btn-join-room" disabled style="margin-top: 10px;">Join Room</button>
+        <button id="btn-reconnect" disabled style="margin-top: 10px; background: #f39c12;">Reconnect</button>
+      </div>
+
+      <!-- Game Panel (Phase 2) -->
+      <div class="panel game-panel">
+        <h2>🎮 Game Control</h2>
+        <div class="game-status" id="game-status">
+          ⏸️ Waiting to start
+        </div>
+        <div class="round-info" id="round-info">
+          Round: - | Drawer: -
+        </div>
+        <div class="timer-display" id="timer-display">
+          --
+        </div>
+        <div class="word-display" id="word-display">
+          No word yet
+        </div>
+        <button id="btn-start-game" class="btn-start-game" disabled>Start Game</button>
+        <div class="guess-section">
+          <div class="form-group">
+            <input type="text" id="input-guess" placeholder="Type your guess..." disabled>
+          </div>
+          <button id="btn-submit-guess" disabled>Submit Guess</button>
+        </div>
+      </div>
+
+      <!-- Players Panel -->
+      <div class="panel">
+        <h2>Players in Room</h2>
+        <div class="info-display">
+          <strong>Current Room:</strong> <span id="current-room">-</span>
+        </div>
+        <ul id="players-list" class="players-list">
+          <li style="color: #999; text-align: center; padding: 20px;">Not in a room</li>
+        </ul>
+      </div>
+
+      <!-- Chat Panel -->
+      <div class="panel chat-panel">
+        <h2>Chat & Messages</h2>
+        <div id="messages" class="messages"></div>
+        <div class="form-group">
+          <input type="text" id="input-message" placeholder="Type a message..." disabled>
+        </div>
+        <button id="btn-send-message" disabled>Send Message</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let socket = null;
+    let currentUserId = null;
+    let currentRoomId = null;
+    let currentUsername = null;
+    let isDrawer = false;
+    let gameState = 'waiting';
+
+    // DOM Elements
+    const connectionStatus = document.getElementById('connection-status');
+    const socketIdDisplay = document.getElementById('socket-id');
+    const userIdDisplay = document.getElementById('user-id');
+    const currentRoomDisplay = document.getElementById('current-room');
+    const messagesDiv = document.getElementById('messages');
+    const playersList = document.getElementById('players-list');
+
+    const inputRoomId = document.getElementById('input-room-id');
+    const inputUsername = document.getElementById('input-username');
+    const inputMessage = document.getElementById('input-message');
+    const inputGuess = document.getElementById('input-guess');
+
+    const btnConnect = document.getElementById('btn-connect');
+    const btnCreateRoom = document.getElementById('btn-create-room');
+    const btnJoinRoom = document.getElementById('btn-join-room');
+    const btnReconnect = document.getElementById('btn-reconnect');
+    const btnSendMessage = document.getElementById('btn-send-message');
+    const btnStartGame = document.getElementById('btn-start-game');
+    const btnSubmitGuess = document.getElementById('btn-submit-guess');
+
+    // Game UI Elements
+    const gameStatusDisplay = document.getElementById('game-status');
+    const roundInfoDisplay = document.getElementById('round-info');
+    const timerDisplay = document.getElementById('timer-display');
+    const wordDisplay = document.getElementById('word-display');
+
+    // Connect to server
+    btnConnect.addEventListener('click', () => {
+      if (socket && socket.connected) {
+        socket.disconnect();
+        return;
+      }
+
+      addMessage('system', 'Connecting to server...');
+      socket = io('http://localhost:3000', {
+        transports: ['websocket', 'polling']
+      });
+
+      setupSocketListeners();
+    });
+
+    // Setup socket event listeners
+    function setupSocketListeners() {
+      socket.on('connect', () => {
+        addMessage('system', '✅ Connected to server');
+        connectionStatus.textContent = '🟢 Connected';
+        connectionStatus.className = 'status connected';
+        socketIdDisplay.textContent = socket.id;
+        btnConnect.textContent = 'Disconnect';
+        btnCreateRoom.disabled = false;
+        btnJoinRoom.disabled = false;
+      });
+
+      socket.on('disconnect', (reason) => {
+        addMessage('system', `❌ Disconnected: ${reason}`);
+        connectionStatus.textContent = '⚫ Disconnected';
+        connectionStatus.className = 'status disconnected';
+        btnConnect.textContent = 'Connect to Server';
+        btnCreateRoom.disabled = true;
+        btnJoinRoom.disabled = true;
+        btnSendMessage.disabled = true;
+        inputMessage.disabled = true;
+        btnReconnect.disabled = false;
+      });
+
+      socket.on('room_created', (data) => {
+        addMessage('system', `✅ Room created: ${data.roomId}`);
+      });
+
+      socket.on('room_joined', (data) => {
+        addMessage('system', `✅ Joined room: ${data.roomId} as ${data.username}`);
+        currentRoomId = data.roomId;
+        currentUserId = data.userId;
+        currentUsername = data.username;
+        currentRoomDisplay.textContent = data.roomId;
+        userIdDisplay.textContent = data.userId;
+        btnSendMessage.disabled = false;
+        inputMessage.disabled = false;
+        btnReconnect.disabled = false;
+        btnStartGame.disabled = false; // Phase 2: Enable start game button
+      });
+
+      socket.on('room_error', (data) => {
+        addMessage('error', `❌ Error: ${data.error}`);
+      });
+
+      socket.on('receive_message', (data) => {
+        addMessage('user', `${data.username}: ${data.message}`, data.timestamp);
+      });
+
+      socket.on('player_list_update', (data) => {
+        updatePlayersList(data.players);
+      });
+
+      socket.on('player_disconnected', (data) => {
+        addMessage('system', `⚠️ ${data.username} disconnected`);
+      });
+
+      socket.on('player_reconnected', (data) => {
+        addMessage('system', `✅ ${data.username} reconnected`);
+      });
+
+      // ============================================
+      // Phase 2: Game Events
+      // ============================================
+
+      socket.on('game_started', (data) => {
+        addMessage('system', '🎮 Game started!');
+        gameState = 'playing';
+        updateGameStatus('🎮 Game in progress');
+        btnStartGame.disabled = true;
+      });
+
+      socket.on('round_started', (data) => {
+        addMessage('system', `🎯 Round ${data.roundNumber} started - ${data.drawerName} is drawing!`);
+        isDrawer = (data.drawerId === currentUserId);
+        gameState = 'playing';
+        
+        roundInfoDisplay.textContent = `Round: ${data.roundNumber} | Drawer: ${data.drawerName}`;
+        
+        if (isDrawer) {
+          updateGameStatus('🎨 You are drawing!');
+          wordDisplay.textContent = 'Word loading...';
+          inputGuess.disabled = true;
+          btnSubmitGuess.disabled = true;
+        } else {
+          updateGameStatus('🤔 Guess the word!');
+          wordDisplay.textContent = '_ _ _ _ _';
+          inputGuess.disabled = false;
+          btnSubmitGuess.disabled = false;
+        }
+      });
+
+      socket.on('word_reveal', (data) => {
+        // Drawer receives the actual word
+        wordDisplay.textContent = data.word.toUpperCase();
+        addMessage('system', `✨ Your word is: ${data.word}`);
+      });
+
+      socket.on('word_hint', (data) => {
+        // Other players receive masked word
+        wordDisplay.textContent = data.hint;
+      });
+
+      socket.on('round_timer_update', (data) => {
+        timerDisplay.textContent = data.remainingTime;
+        
+        // Color coding for urgency
+        if (data.remainingTime <= 10) {
+          timerDisplay.style.color = '#e74c3c';
+        } else if (data.remainingTime <= 30) {
+          timerDisplay.style.color = '#f39c12';
+        } else {
+          timerDisplay.style.color = 'white';
+        }
+      });
+
+      socket.on('correct_guess', (data) => {
+        if (data.userId === currentUserId) {
+          addMessage('system', '🎉 Correct! You guessed the word!');
+          updateGameStatus('✅ You guessed correctly!');
+          inputGuess.disabled = true;
+          btnSubmitGuess.disabled = true;
+        } else {
+          addMessage('system', `✅ ${data.username} guessed correctly!`);
+        }
+      });
+
+      socket.on('round_ended', (data) => {
+        addMessage('system', `⏱️ Round ${data.roundNumber} ended! The word was: ${data.word}`);
+        gameState = 'round_end';
+        updateGameStatus('⏸️ Round ended');
+        wordDisplay.textContent = data.word.toUpperCase();
+        timerDisplay.textContent = '--';
+        inputGuess.disabled = true;
+        btnSubmitGuess.disabled = true;
+        
+        // Show scores
+        let scoreMsg = 'Scores: ';
+        data.players.forEach(p => {
+          scoreMsg += `${p.username}: ${p.score} `;
+        });
+        addMessage('system', scoreMsg);
+      });
+
+      socket.on('game_stopped', (data) => {
+        addMessage('system', `🛑 Game stopped: ${data.reason}`);
+        gameState = 'waiting';
+        updateGameStatus('⏸️ Waiting to start');
+        wordDisplay.textContent = 'No word yet';
+        timerDisplay.textContent = '--';
+        roundInfoDisplay.textContent = 'Round: - | Drawer: -';
+        btnStartGame.disabled = false;
+        inputGuess.disabled = true;
+        btnSubmitGuess.disabled = true;
+      });
+
+      socket.on('game_error', (data) => {
+        addMessage('error', `❌ Game Error: ${data.error}`);
+      });
+    }
+
+    // Create room
+    btnCreateRoom.addEventListener('click', () => {
+      const roomId = inputRoomId.value.trim();
+      if (!roomId) {
+        alert('Please enter a room ID');
+        return;
+      }
+
+      socket.emit('create_room', { roomId }, (response) => {
+        if (!response.success) {
+          addMessage('error', `Failed to create room: ${response.error}`);
+        }
+      });
+    });
+
+    // Join room
+    btnJoinRoom.addEventListener('click', () => {
+      const roomId = inputRoomId.value.trim();
+      const username = inputUsername.value.trim();
+
+      if (!roomId || !username) {
+        alert('Please enter both room ID and username');
+        return;
+      }
+
+      socket.emit('join_room', { roomId, username }, (response) => {
+        if (!response.success) {
+          addMessage('error', `Failed to join room: ${response.error}`);
+        }
+      });
+    });
+
+    // Reconnect
+    btnReconnect.addEventListener('click', () => {
+      if (!currentRoomId || !currentUserId) {
+        alert('No previous session to reconnect to');
+        return;
+      }
+
+      if (!socket || !socket.connected) {
+        alert('Please connect to server first');
+        return;
+      }
+
+      socket.emit('reconnect_player', { 
+        roomId: currentRoomId, 
+        userId: currentUserId 
+      }, (response) => {
+        if (!response.success) {
+          addMessage('error', `Failed to reconnect: ${response.error}`);
+        }
+      });
+    });
+
+    // Send message
+    btnSendMessage.addEventListener('click', sendMessage);
+    inputMessage.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    function sendMessage() {
+      const message = inputMessage.value.trim();
+      if (!message) return;
+
+      socket.emit('send_message', { 
+        roomId: currentRoomId, 
+        message 
+      }, (response) => {
+        if (response && response.success) {
+          inputMessage.value = '';
+        }
+      });
+    }
+
+    // ============================================
+    // Phase 2: Game Controls
+    // ============================================
+
+    // Start game
+    btnStartGame.addEventListener('click', () => {
+      if (!currentRoomId) {
+        alert('Please join a room first');
+        return;
+      }
+
+      socket.emit('start_game', { roomId: currentRoomId }, (response) => {
+        if (!response.success) {
+          addMessage('error', `Failed to start game: ${response.error}`);
+        }
+      });
+    });
+
+    // Submit guess
+    btnSubmitGuess.addEventListener('click', submitGuess);
+    inputGuess.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitGuess();
+    });
+
+    function submitGuess() {
+      const guess = inputGuess.value.trim();
+      if (!guess) return;
+
+      socket.emit('submit_guess', { 
+        roomId: currentRoomId, 
+        guess 
+      }, (response) => {
+        if (response && response.success) {
+          inputGuess.value = '';
+        }
+      });
+    }
+
+    // Update game status display
+    function updateGameStatus(status) {
+      gameStatusDisplay.textContent = status;
+    }
+
+    // Add message to chat
+    function addMessage(type, text, timestamp = Date.now()) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${type}`;
+      
+      const time = new Date(timestamp).toLocaleTimeString();
+      messageDiv.innerHTML = `
+        ${text}
+        <span class="timestamp">${time}</span>
+      `;
+      
+      messagesDiv.appendChild(messageDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // Update players list
+    function updatePlayersList(players) {
+      if (!players || players.length === 0) {
+        playersList.innerHTML = '<li style="color: #999; text-align: center; padding: 20px;">No players</li>';
+        return;
+      }
+
+      playersList.innerHTML = players.map(player => `
+        <li class="player-item">
+          <span>
+            <span class="status-dot ${player.isConnected ? 'online' : 'offline'}"></span>
+            ${player.username}
+          </span>
+          <span style="color: #999; font-size: 12px;">Score: ${player.score}</span>
+        </li>
+      `).join('');
+    }
+  </script>
+</body>
+</html>
