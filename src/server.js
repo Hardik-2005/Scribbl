@@ -1,9 +1,14 @@
 import express from 'express';
 import { createServer } from 'http';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { initializeSocket } from './config/socket.js';
 import roomManager from './rooms/roomManager.js';
 import { connectRedis } from './redis/redisClient.js';
 import { createAdapter } from "@socket.io/redis-adapter";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = join(__dirname, '..', 'public');
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -12,7 +17,7 @@ const httpServer = createServer(app);
 
 // Middleware
 app.use(express.json());
-app.use(express.static('public')); // Serve static files from public directory
+app.use(express.static(PUBLIC_DIR)); // Serves D:\Scribble\public regardless of cwd
 
 // ============================================
 // REST API Endpoints (Optional - for testing)

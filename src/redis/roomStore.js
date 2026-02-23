@@ -44,6 +44,29 @@ const CREATE_ROOM_SCRIPT = `
   return 1
 `;
 
+/**
+ * Lua script: atomically transition gameState from "waiting" → "playing".
+ *
+ * Distributed guarantee: only ONE server instance can win this CAS.
+ * Any concurrent call from another instance will read a non-"waiting"
+ * gameState and return 0, preventing a double-start.
+ *
+ * Returns 1 on success (state was "waiting" and is now "playing").
+ * Returns 0 if state was already changed (idempotent guard).
+ */
+const START_GAME_ATOMIC_SCRIPT = `
+  local state = redis.call("HGET", KEYS[1], "gameState")
+  if state ~= "waiting" and state ~= "finished" then
+    return 0
+  end
+  redis.call("HSET", KEYS[1],
+    "gameState",   "playing",
+    "roundNumber", "0",
+    "totalRounds", ARGV[1]
+  )
+  return 1
+`;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -392,6 +415,39 @@ export async function refreshLock(lockKey, ownerId, ttlSecs) {
   if (current === ownerId) {
     await client.expire(lockKey, ttlSecs);
   }
+}
+
+/**
+ * Returns true if this instance currently owns the specified lock.
+ * Used by the timer loop on every tick to abort if ownership was lost.
+ * @param {string} lockKey
+ * @param {string} ownerId
+ * @returns {Promise<boolean>}
+ */
+export async function isLockOwner(lockKey, ownerId) {
+  const client = getRedisClient();
+  const value  = await client.get(lockKey);
+  return value === ownerId;
+}
+
+/**
+ * Atomically transitions gameState from "waiting" → "playing" using Lua CAS.
+ *
+ * Distributed guarantee: only ONE server instance across the cluster can win
+ * this CAS. All concurrent callers see the already-changed state and receive
+ * false, preventing any double-start race condition.
+ *
+ * @param {string} roomId
+ * @param {number} totalRounds
+ * @returns {Promise<boolean>} true if this instance won the transition
+ */
+export async function atomicStartGame(roomId, totalRounds) {
+  const client = getRedisClient();
+  const result = await client.eval(START_GAME_ATOMIC_SCRIPT, {
+    keys:      [roomKey(roomId)],
+    arguments: [String(totalRounds)]
+  });
+  return result === 1;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

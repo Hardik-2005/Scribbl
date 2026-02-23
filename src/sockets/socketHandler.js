@@ -8,12 +8,20 @@ import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, reset
 export function handleSocketConnection(io, socket) {
   console.log(`[Socket] Client connected: ${socket.id}`);
 
+  // Log every incoming socket event (except high-frequency drawing events)
+  const SILENT_EVENTS = new Set(['draw_stroke', 'draw_stroke_batch', 'request_sync_strokes']);
+  socket.onAny((event, ...args) => {
+    if (SILENT_EVENTS.has(event)) return;
+    const payload = args[0] && typeof args[0] === 'object' ? JSON.stringify(args[0]) : args[0];
+    console.log(`[Socket][IN] event="${event}" socket=${socket.id} payload=${payload}`);
+  });
+
   // ============================================
   // Event: create_room
   // ============================================
   socket.on('create_room', async (payload, callback) => {
     try {
-      const { roomId } = payload;
+      const { roomId, username } = payload;
 
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
@@ -23,17 +31,37 @@ export function handleSocketConnection(io, socket) {
       }
 
       if (await roomManager.roomExists(roomId)) {
+        console.log(`[Socket][create_room] BLOCKED — room "${roomId}" already exists`);
         const error = { success: false, error: 'Room already exists' };
         socket.emit('room_error', error);
         if (callback) callback(error);
         return;
       }
 
-      const room = await roomManager.createRoom(roomId);
+      await roomManager.createRoom(roomId);
 
-      const response = { success: true, roomId: room.roomId, message: 'Room created successfully' };
-      socket.emit('room_created', response);
-      if (callback) callback(response);
+      // Auto-join the creator as a player if username provided
+      if (username && typeof username === 'string' && username.trim().length > 0) {
+        const { generateUserId } = await import('../utils/idGenerator.js');
+        const userId = generateUserId();
+        const player = { userId, username: username.trim(), socketId: socket.id, isConnected: true, score: 0 };
+        await roomManager.joinRoom(roomId, player);
+        socket.join(roomId);
+        const players = await roomManager.getRoomPlayers(roomId);
+        const response = { success: true, roomId, userId, username: player.username, message: 'Room created and joined' };
+        socket.emit('room_created', response);
+        io.to(roomId).emit('player_list_update', {
+          roomId,
+          players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
+        });
+        if (callback) callback(response);
+      } else {
+        const response = { success: true, roomId, message: 'Room created successfully' };
+        socket.emit('room_created', response);
+        if (callback) callback(response);
+      }
+
+      console.log(`[Socket] Room ${roomId} created by ${socket.id}`);
 
     } catch (error) {
       console.error('[Socket] Error creating room:', error.message);
@@ -64,6 +92,7 @@ export function handleSocketConnection(io, socket) {
       }
 
       if (!(await roomManager.roomExists(roomId))) {
+        console.log(`[Socket][join_room] BLOCKED — room "${roomId}" does not exist`);
         const error = { success: false, error: 'Room does not exist' };
         socket.emit('room_error', error);
         if (callback) callback(error);
@@ -229,6 +258,7 @@ export function handleSocketConnection(io, socket) {
       }
 
       if (room.gameState === 'playing' || room.gameState === 'round_end') {
+        console.log(`[Socket][start_game] BLOCKED — gameState is already "${room.gameState}" for room ${roomId}`);
         const error = { success: false, error: 'Game already in progress' };
         socket.emit('game_error', error);
         if (callback) callback(error);

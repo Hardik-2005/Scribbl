@@ -1,54 +1,108 @@
 ﻿/**
- * GameEngine â€” Core game logic and round lifecycle management
- * Phase 3 + Distributed (Redis-backed state, distributed timer locking)
+ * GameEngine — Production-safe distributed round control
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * Timer ownership strategy
- * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- * When a round starts the server that calls startRound() tries to acquire
- *   lock:room:{roomId}:timer
- * via Redis SETNX (NX EX 70).  Only the winner starts the local setInterval.
- * Each tick re-fetches the room from Redis so stale in-memory state is never
- * used for decisions.  On round end the lock is released so either server can
- * win for the next round.  A heartbeat refreshes the TTL mid-round.
+ * DISTRIBUTED GUARANTEES
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * 1. GAME START — Atomic Lua CAS (waiting → playing)
+ *    roomStore.atomicStartGame() uses a Lua script that checks gameState ===
+ *    "waiting" AND writes "playing" in a single Redis command.  Only ONE
+ *    server instance across the entire cluster can ever win this CAS.
+ *    All concurrent callers receive false and bail out immediately.
+ *
+ * 2. ROUND START — Round lock (lock:room:{roomId}:round, TTL 15 s)
+ *    Before any state mutation:
+ *      a. Acquire round lock via SET NX EX.
+ *      b. Re-fetch room from Redis (never trust pre-lock state).
+ *      c. Verify gameState is valid.
+ *      d. Idempotency check: if roundNumber already matches expected, skip.
+ *      e. Generate word (ONLY inside the lock — nowhere else).
+ *      f. Write all state to Redis (saveRoomMeta + savePlayers).
+ *      g. Emit round_started / word_reveal / word_hint ONLY after Redis write.
+ *      h. Release round lock (finally block — always executes).
+ *    If lock acquisition fails → another instance is starting the round; do nothing.
+ *
+ * 3. TIMER — Timer lock (lock:room:{roomId}:timer, TTL 70 s)
+ *    Only the lock-winner starts a local setInterval. Every single tick:
+ *      • Calls isLockOwner() — stops immediately if ownership lost.
+ *      • Re-fetches full room from Redis (no stale in-memory state).
+ *      • roundEndTime comes from Redis, never from a local counter.
+ *      • Heartbeat refreshes lock TTL when remaining > 5 s.
+ *    Timer jumps are impossible: all countdown derives from the single
+ *    Redis-authoritative roundEndTime set inside the round lock.
+ *
+ * 4. CLIENTS — Receive roundEndTime as an absolute ms timestamp.
+ *    Client calculates: remaining = roundEndTime - Date.now()
+ *    Clients NEVER generate words, reset timers, or restart rounds.
+ *
+ * 5. ALL STATE — Re-fetched from Redis at every decision point.
+ *    No in-memory room fields are cached between async operations.
  */
 
 import * as roomStore from '../redis/roomStore.js';
 import { getRandomWord, maskWord, isCorrectGuess } from './wordService.js';
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Constants
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_ROUND_DURATION = 60;   // seconds
+const DEFAULT_ROUND_DURATION = 60;   // seconds per round
 const DEFAULT_TOTAL_ROUNDS   = 3;
 const MIN_ROUNDS             = 1;
 const MAX_ROUNDS             = 10;
-const ROUND_END_DELAY        = 5000; // ms between rounds
+const ROUND_END_DELAY        = 5000; // ms pause between rounds
 const DRAWER_BONUS_POINTS    = 50;
-const TIMER_LOCK_TTL         = 70;   // seconds â€” slightly longer than max round
+const TIMER_LOCK_TTL         = 70;   // seconds — must exceed max round duration
+const ROUND_LOCK_TTL         = 15;   // seconds — covers round-start setup phase only
 
-/** Unique identity for this server process (used for lock ownership checks) */
+/**
+ * Unique identity for this server process.
+ * Stored as the Redis lock value; ownership verified by GET + compare.
+ * Format: "pid-{pid}-{startTime}" — unique across processes and restarts.
+ */
 const INSTANCE_ID = `pid-${process.pid}-${Date.now()}`;
 
-/** In-memory map of active setInterval handles (local to this process only) */
+/**
+ * In-process registry of active setInterval handles.
+ * Only this instance's timers are tracked here; other instances have their own.
+ */
 const roomTimers = new Map();
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Internal helpers
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
+// Lock key helpers
+// ────────────────────────────────────────────────────────────────────────────
 
+/** Short-lived mutex protecting the round-start setup phase. */
+function roundLockKey(roomId) { return `lock:room:${roomId}:round`; }
+
+/** Long-lived lock: only the holder runs the tick interval for this round. */
 function timerLockKey(roomId) { return `lock:room:${roomId}:timer`; }
 
-/** Cancels the local setInterval for a room (does NOT release the Redis lock). */
+// ────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cancels the local setInterval for a room.
+ * Does NOT release the Redis timer lock — call releaseLock() separately.
+ * @param {string} roomId
+ */
 export function stopRoundTimer(roomId) {
   const id = roomTimers.get(roomId);
   if (id) {
     clearInterval(id);
     roomTimers.delete(roomId);
-    console.log(`[GameEngine] Local timer stopped for room ${roomId}`);
+    console.log(`[GameEngine] Local timer cleared for room ${roomId}`);
   }
 }
 
+/**
+ * Round-robin drawer selection over connected players sorted by join time.
+ * Called after roundNumber has already been incremented.
+ * @param {Object} room - Hydrated room
+ * @returns {Object|null}
+ */
 function selectDrawer(room) {
   const connected = [...room.players.values()]
     .filter(p => p.isConnected)
@@ -86,156 +140,324 @@ function calculateTimeBasedScore(roundEndTime, roundDuration) {
   return Math.max(Math.floor(100 * (remaining / roundDuration)), 10);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Game lifecycle
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
+// Game lifecycle — public API
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Starts the game.
- * @param {Object} room      - Hydrated room (from roomStore.getRoom)
+ * Starts the game for a room.
+ *
+ * RACE CONDITION PROTECTION:
+ *   Uses roomStore.atomicStartGame() — a Lua CAS that transitions
+ *   "waiting" → "playing" atomically in Redis.  Only ONE instance can win.
+ *   All concurrent calls from other instances receive false and return early,
+ *   preventing duplicate game_started events and duplicate round starts.
+ *
+ * @param {Object} room        - Hydrated room (caller must fetch fresh first)
  * @param {number} totalRounds
- * @param {Object} io        - Socket.IO server instance
+ * @param {Object} io          - Socket.IO server instance
  * @returns {Promise<{success:boolean, error?:string}>}
  */
 export async function startGame(room, totalRounds, io) {
-  const connected = [...room.players.values()].filter(p => p.isConnected);
-  if (connected.length < 2) {
-    return { success: false, error: 'At least 2 connected players required' };
-  }
-  if (room.gameState !== 'waiting' && room.gameState !== 'finished') {
-    return { success: false, error: 'Game already in progress' };
-  }
+  // ── Input guards (fast-path, no Redis) ────────────────────────────────
   if (totalRounds < MIN_ROUNDS || totalRounds > MAX_ROUNDS) {
     return { success: false, error: `Total rounds must be between ${MIN_ROUNDS} and ${MAX_ROUNDS}` };
   }
 
-  room.gameState   = 'playing';
-  room.roundNumber = 0;
-  room.totalRounds = totalRounds;
+  const connected = [...room.players.values()].filter(p => p.isConnected);
+  if (connected.length < 2) {
+    return { success: false, error: 'At least 2 connected players required' };
+  }
 
-  await roomStore.saveRoomMeta(room);
+  // Reject immediately if state is already past "waiting".
+  // This is a fast-path guard; the atomic CAS below is the true authority.
+  if (room.gameState !== 'waiting' && room.gameState !== 'finished') {
+    return { success: false, error: 'Game already in progress' };
+  }
 
-  console.log(`[GameEngine] Game started in room ${room.roomId} â€” ${totalRounds} rounds`);
+  // ── Atomic CAS: "waiting" → "playing" ─────────────────────────────────
+  const won = await roomStore.atomicStartGame(room.roomId, totalRounds);
+  if (!won) {
+    console.log(`[GameEngine] startGame CAS lost for room ${room.roomId} — another instance won the race`);
+    return { success: false, error: 'Game already started by another instance' };
+  }
+
+  console.log(`[GameEngine] Game started — room: ${room.roomId} | rounds: ${totalRounds} | instance: ${INSTANCE_ID}`);
 
   io.to(room.roomId).emit('game_started', {
-    roomId: room.roomId, totalRounds, message: 'Game started!', timestamp: Date.now()
+    roomId:      room.roomId,
+    totalRounds,
+    message:     'Game started!',
+    timestamp:   Date.now()
   });
 
+  // Delay gives clients time to process game_started before round_started.
   const roomId = room.roomId;
   setTimeout(() => {
-    startRound({ roomId }, io).catch(err =>
-      console.error('[GameEngine] startRound error:', err.message));
+    startRound({ roomId, expectedRoundNumber: 1 }, io)
+      .catch(err => console.error('[GameEngine] startRound error after startGame:', err.message));
   }, 1000);
 
   return { success: true };
 }
 
 /**
- * Starts a new round.  Always re-fetches room from Redis to avoid stale state.
- * @param {{roomId:string}} roomRef
+ * Starts a new round with full distributed safety.
+ *
+ * ROUND LOCK GUARANTEE:
+ *   Acquires lock:room:{roomId}:round (SET NX EX 15).
+ *   All state mutations happen inside the lock.
+ *   Lock is released in a finally block — always, even on error.
+ *
+ * WORD GENERATION GUARANTEE:
+ *   getRandomWord() is called exactly once, inside the lock, after all
+ *   guards pass.  There is no code path that generates a word outside the lock.
+ *
+ * EMIT ORDER GUARANTEE:
+ *   round_started / word_reveal / word_hint are emitted ONLY AFTER
+ *   roomStore.saveRoomMeta() and roomStore.savePlayers() both resolve.
+ *   Clients can never receive state that Redis has not confirmed.
+ *
+ * IDEMPOTENCY:
+ *   If expectedRoundNumber is provided and Redis roundNumber already meets
+ *   or exceeds it, this invocation is a duplicate — return silently.
+ *
+ * @param {{roomId:string, expectedRoundNumber?:number}} roomRef
  * @param {Object} io
  */
 export async function startRound(roomRef, io) {
-  const roomId = roomRef.roomId;
-  const room   = await roomStore.getRoom(roomId);
-  if (!room || room.gameState !== 'playing') {
-    console.log(`[GameEngine] startRound aborted â€” room ${roomId} not in playing state`);
+  const roomId           = roomRef.roomId;
+  const expectedRoundNum = roomRef.expectedRoundNumber ?? null;
+  const lockKey          = roundLockKey(roomId);
+
+  // ── Step 1: Acquire the round-start mutex ────────────────────────────
+  const acquired = await roomStore.acquireLock(lockKey, INSTANCE_ID, ROUND_LOCK_TTL);
+  if (!acquired) {
+    // Another instance already holds the lock and is setting up this round.
+    console.log(`[GameEngine] Round lock NOT acquired for room ${roomId} — another instance is starting the round`);
     return;
   }
 
-  const connected = [...room.players.values()].filter(p => p.isConnected);
-  if (connected.length < 2) { await stopGame(room, io, 'Not enough players'); return; }
-
-  room.roundNumber++;
-  room.correctGuessers.clear();
-  for (const p of room.players.values()) p.hasGuessedCurrentRound = false;
-
-  const drawer = selectDrawer(room);
-  if (!drawer) { await stopGame(room, io, 'No drawer available'); return; }
-
-  room.currentDrawerId = drawer.userId;
-  room.currentWord     = getRandomWord();
-  room.roundEndTime    = Date.now() + (room.roundDuration * 1000);
-
-  await Promise.all([
-    roomStore.saveRoomMeta(room),
-    roomStore.savePlayers(roomId, room.players)
-  ]);
-
-  console.log(`[GameEngine] Round ${room.roundNumber} started â€” Drawer: ${drawer.username}, Word: ${room.currentWord}`);
-
-  io.to(roomId).emit('round_started', {
-    roomId,
-    roundNumber:   room.roundNumber,
-    drawerId:      drawer.userId,
-    drawerName:    drawer.username,
-    roundDuration: room.roundDuration,
-    timestamp:     Date.now()
-  });
-
-  const drawerSock = io.sockets.sockets.get(drawer.socketId);
-  if (drawerSock) drawerSock.emit('word_reveal', { word: room.currentWord, roundNumber: room.roundNumber });
-
-  const masked = maskWord(room.currentWord);
-  for (const p of room.players.values()) {
-    if (p.userId !== drawer.userId && p.isConnected) {
-      const s = io.sockets.sockets.get(p.socketId);
-      if (s) s.emit('word_hint', { hint: masked, wordLength: room.currentWord.length, roundNumber: room.roundNumber });
+  try {
+    // ── Step 2: Re-read authoritative state from Redis ───────────────────
+    // The room ref passed in may be stale.  Always read after locking.
+    const room = await roomStore.getRoom(roomId);
+    if (!room) {
+      console.log(`[GameEngine] Room ${roomId} gone after lock — aborting startRound`);
+      return;
     }
+
+    // ── Step 3: State guards ─────────────────────────────────────────────
+    if (room.gameState !== 'playing' && room.gameState !== 'round_end') {
+      console.log(`[GameEngine] startRound aborted — room ${roomId} gameState is "${room.gameState}"`);
+      return;
+    }
+
+    // ── Step 4: Idempotency ──────────────────────────────────────────────
+    // If round N is already active (another instance beat us to it), skip.
+    if (expectedRoundNum !== null && room.roundNumber >= expectedRoundNum) {
+      console.log(`[GameEngine] Idempotency skip — room ${roomId} already at round ${room.roundNumber}`);
+      return;
+    }
+
+    const connected = [...room.players.values()].filter(p => p.isConnected);
+    if (connected.length < 2) {
+      await stopGame(room, io, 'Not enough players');
+      return;
+    }
+
+    // ── Step 5: Mutate round state ───────────────────────────────────────
+    room.roundNumber++;
+    room.correctGuessers = new Set();
+    room.gameState       = 'playing';
+    for (const p of room.players.values()) p.hasGuessedCurrentRound = false;
+
+    const drawer = selectDrawer(room);
+    if (!drawer) {
+      await stopGame(room, io, 'No drawer available');
+      return;
+    }
+
+    room.currentDrawerId = drawer.userId;
+
+    // ── Step 6: Generate word — ONLY inside the lock ─────────────────────
+    // This is the single call site for getRandomWord().
+    // Executing here guarantees all players receive the same word.
+    room.currentWord  = getRandomWord();
+    room.roundEndTime = Date.now() + (room.roundDuration * 1000);
+
+    // ── Step 7: Persist ALL state to Redis BEFORE any emit ───────────────
+    await Promise.all([
+      roomStore.saveRoomMeta(room),
+      roomStore.savePlayers(roomId, room.players)
+    ]);
+
+    console.log(
+      `[GameEngine] Round ${room.roundNumber}/${room.totalRounds} persisted — ` +
+      `room: ${roomId} | drawer: ${drawer.username} | word: ${room.currentWord} | instance: ${INSTANCE_ID}`
+    );
+
+    // ── Step 8: Emit — ONLY after Redis confirms the write ───────────────
+
+    // Broadcast round info to all players (word is NOT included here).
+    io.to(roomId).emit('round_started', {
+      roomId,
+      roundNumber:   room.roundNumber,
+      totalRounds:   room.totalRounds,
+      drawerId:      drawer.userId,
+      drawerName:    drawer.username,
+      roundDuration: room.roundDuration,
+      roundEndTime:  room.roundEndTime,  // absolute ms — client derives countdown
+      timestamp:     Date.now()
+    });
+
+    // Drawer receives the word privately.
+    const drawerSock = io.sockets.sockets.get(drawer.socketId);
+    if (drawerSock) {
+      drawerSock.emit('word_reveal', {
+        word:        room.currentWord,
+        roundNumber: room.roundNumber
+      });
+    }
+
+    // Everyone else receives the masked hint.
+    const masked = maskWord(room.currentWord);
+    for (const p of room.players.values()) {
+      if (p.userId !== drawer.userId && p.isConnected) {
+        const s = io.sockets.sockets.get(p.socketId);
+        if (s) {
+          s.emit('word_hint', {
+            hint:        masked,
+            wordLength:  room.currentWord.length,
+            roundNumber: room.roundNumber
+          });
+        }
+      }
+    }
+
+  } finally {
+    // ── Step 9: Release round lock — always ──────────────────────────────
+    // The finally block guarantees release even if an exception occurred,
+    // preventing deadlock on the next round start.
+    await roomStore.releaseLock(lockKey, INSTANCE_ID);
   }
 
-  await startRoundTimer(roomId, room.roundNumber, io);
+  // ── Step 10: Compete for the timer lock (outside the round lock) ──────
+  // Round lock is already released.  Timer lock is a separate lifetime.
+  await startRoundTimer(roomId, io);
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Timer — ownership-verified, Redis-driven interval
+// ────────────────────────────────────────────────────────────────────────────
+
 /**
- * Acquires the distributed timer lock and starts the 1-second tick.
- * Only ONE server instance will win the lock per round.
+ * Acquires the timer lock and starts the authoritative 1-second tick.
+ *
+ * OWNERSHIP VERIFICATION (every tick):
+ *   roomStore.isLockOwner() does a Redis GET on the lock key and compares the
+ *   value to INSTANCE_ID.  If ownership is lost (TTL expired, another instance
+ *   took over) the interval is cleared immediately.  This is the primary guard
+ *   against duplicate timer emissions during failover or restart scenarios.
+ *
+ * TIMER VALUE SOURCE:
+ *   remaining = roundEndTime (from Redis) - Date.now()
+ *   roundEndTime was set in startRound() inside the round lock — one value,
+ *   one source.  No local counter is used.  Timer jumps are impossible.
+ *
+ * @param {string} roomId
+ * @param {Object} io
  */
-async function startRoundTimer(roomId, roundNumber, io) {
-  stopRoundTimer(roomId);
+async function startRoundTimer(roomId, io) {
+  stopRoundTimer(roomId); // clear any leftover local interval
 
-  const lockKey  = timerLockKey(roomId);
+  const lockKey = timerLockKey(roomId);
+
+  // Read the authoritative round number AFTER the round lock was released.
+  const snap = await roomStore.getRoom(roomId);
+  if (!snap || snap.gameState !== 'playing') return;
+  const expectedRound = snap.roundNumber;
+
+  // Compete for timer ownership.
   const acquired = await roomStore.acquireLock(lockKey, INSTANCE_ID, TIMER_LOCK_TTL);
-
   if (!acquired) {
-    console.log(`[GameEngine] Timer lock NOT acquired for room ${roomId} â€” another instance owns it`);
+    console.log(`[GameEngine] Timer lock NOT acquired for room ${roomId} round ${expectedRound} — another instance owns timer`);
     return;
   }
-  console.log(`[GameEngine] Timer lock acquired for room ${roomId} (${INSTANCE_ID})`);
+  console.log(`[GameEngine] Timer lock acquired — room: ${roomId} | round: ${expectedRound} | instance: ${INSTANCE_ID}`);
 
   const timerId = setInterval(async () => {
     try {
-      const fresh = await roomStore.getRoom(roomId);
-
-      if (!fresh || fresh.gameState !== 'playing' || fresh.roundNumber !== roundNumber) {
+      // ── Guard 1: Verify lock ownership ──────────────────────────────────
+      // If the lock expired or was re-acquired by another instance, stop now.
+      const stillOwner = await roomStore.isLockOwner(lockKey, INSTANCE_ID);
+      if (!stillOwner) {
+        console.warn(`[GameEngine] Timer lock lost for room ${roomId} — stopping interval`);
         clearInterval(timerId);
         roomTimers.delete(roomId);
-        await roomStore.releaseLock(lockKey, INSTANCE_ID);
         return;
       }
 
+      // ── Guard 2: Re-fetch authoritative room state ───────────────────────
+      const fresh = await roomStore.getRoom(roomId);
+      if (
+        !fresh ||
+        fresh.gameState !== 'playing' ||
+        fresh.roundNumber !== expectedRound
+      ) {
+        clearInterval(timerId);
+        roomTimers.delete(roomId);
+        await roomStore.releaseLock(lockKey, INSTANCE_ID);
+        console.log(`[GameEngine] Timer stopped — room ${roomId} state changed (was round ${expectedRound})`);
+        return;
+      }
+
+      // ── Compute countdown from Redis-authoritative roundEndTime ──────────
       const remaining = Math.max(0, Math.ceil((fresh.roundEndTime - Date.now()) / 1000));
 
-      io.to(roomId).emit('round_timer_update', { roomId, remainingTime: remaining, roundNumber: fresh.roundNumber });
+      io.to(roomId).emit('round_timer_update', {
+        roomId,
+        remainingTime: remaining,
+        roundNumber:   fresh.roundNumber,
+        roundEndTime:  fresh.roundEndTime   // absolute timestamp for client re-sync
+      });
 
-      if (remaining > 5) await roomStore.refreshLock(lockKey, INSTANCE_ID, TIMER_LOCK_TTL);
+      // ── Heartbeat: extend lock TTL while round is still running ──────────
+      if (remaining > 5) {
+        await roomStore.refreshLock(lockKey, INSTANCE_ID, TIMER_LOCK_TTL);
+      }
 
+      // ── End round when time expires ───────────────────────────────────────
       if (remaining <= 0) {
         clearInterval(timerId);
         roomTimers.delete(roomId);
         await roomStore.releaseLock(lockKey, INSTANCE_ID);
         await endRound(fresh, io, 'time_up');
       }
+
     } catch (err) {
-      console.error('[GameEngine] Timer tick error:', err.message);
+      console.error(`[GameEngine] Timer tick error — room ${roomId}:`, err.message);
     }
   }, 1000);
 
   roomTimers.set(roomId, timerId);
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Round / game termination
+// ────────────────────────────────────────────────────────────────────────────
+
 /**
- * Ends the current round, awards drawer bonus, schedules next round or game end.
+ * Ends the current round: awards drawer bonus, emits round_ended, and
+ * schedules the next round (or endGame if final round).
+ *
+ * The next round's startRound() call is protected by its own round lock,
+ * so even if both instances reach the setTimeout callback simultaneously,
+ * exactly one will proceed.
+ *
+ * @param {Object} room   - Fresh room object (from Redis)
+ * @param {Object} io
+ * @param {string} reason - 'time_up' | 'all_guessed' | 'drawer_left'
  */
 export async function endRound(room, io, reason = 'time_up') {
   stopRoundTimer(room.roomId);
@@ -254,12 +476,12 @@ export async function endRound(room, io, reason = 'time_up') {
     if (drawer) {
       drawer.score += DRAWER_BONUS_POINTS;
       await roomStore.savePlayer(room.roomId, drawer);
-      console.log(`[GameEngine] Drawer ${drawer.username} earned +${DRAWER_BONUS_POINTS} pts`);
+      console.log(`[GameEngine] Drawer ${drawer.username} +${DRAWER_BONUS_POINTS} pts bonus`);
     }
   }
 
   await roomStore.saveRoomMeta(room);
-  console.log(`[GameEngine] Round ${room.roundNumber} ended â€” Reason: ${reason}`);
+  console.log(`[GameEngine] Round ${room.roundNumber} ended — reason: ${reason} — room: ${room.roomId}`);
 
   io.to(room.roomId).emit('round_ended', {
     roomId:      room.roomId,
@@ -267,35 +489,54 @@ export async function endRound(room, io, reason = 'time_up') {
     totalRounds: room.totalRounds,
     word:        room.currentWord,
     reason,
-    players:     [...room.players.values()].map(p => ({
-      userId: p.userId, username: p.username, score: p.score, guessedCorrectly: p.hasGuessedCurrentRound
+    players: [...room.players.values()].map(p => ({
+      userId:           p.userId,
+      username:         p.username,
+      score:            p.score,
+      guessedCorrectly: p.hasGuessedCurrentRound ?? false
     })),
     timestamp: Date.now()
   });
 
-  const roomId = room.roomId;
+  const roomId    = room.roomId;
+  const nextRound = room.roundNumber + 1;
+  const isLast    = room.roundNumber >= room.totalRounds;
 
-  if (room.roundNumber >= room.totalRounds) {
-    setTimeout(() => endGame({ roomId }, io).catch(err =>
-      console.error('[GameEngine] endGame error:', err.message)), ROUND_END_DELAY);
+  if (isLast) {
+    setTimeout(() =>
+      endGame({ roomId }, io)
+        .catch(err => console.error('[GameEngine] endGame error:', err.message)),
+      ROUND_END_DELAY
+    );
   } else {
     setTimeout(async () => {
+      // Re-fetch to confirm room is still in round_end.
       const fresh = await roomStore.getRoom(roomId);
-      if (!fresh || fresh.gameState !== 'round_end') return;
-      const conn = [...fresh.players.values()].filter(p => p.isConnected);
-      if (conn.length >= 2) {
-        fresh.gameState = 'playing';
-        await roomStore.saveRoomMeta(fresh);
-        await startRound(fresh, io);
-      } else {
-        await stopGame(fresh, io, 'Not enough players');
+      if (!fresh || fresh.gameState !== 'round_end') {
+        console.log(`[GameEngine] Skipping next round — room ${roomId} state is "${fresh?.gameState}"`);
+        return;
       }
+
+      const conn = [...fresh.players.values()].filter(p => p.isConnected);
+      if (conn.length < 2) {
+        await stopGame(fresh, io, 'Not enough players');
+        return;
+      }
+
+      fresh.gameState = 'playing';
+      await roomStore.saveRoomMeta(fresh);
+
+      // startRound has its own round lock — concurrent calls from multiple
+      // instances are handled safely inside.
+      await startRound({ roomId, expectedRoundNumber: nextRound }, io);
     }, ROUND_END_DELAY);
   }
 }
 
 /**
- * Ends the game and broadcasts leaderboard + winner.
+ * Ends the game: sets state to "finished" and broadcasts leaderboard.
+ * @param {{roomId:string}} roomRef
+ * @param {Object} io
  */
 export async function endGame(roomRef, io) {
   const room = await roomStore.getRoom(roomRef.roomId);
@@ -310,42 +551,53 @@ export async function endGame(roomRef, io) {
     .sort((a, b) => b.score - a.score);
 
   const winner = leaderboard[0];
-  console.log(`[GameEngine] Game ended in room ${room.roomId} â€” Winner: ${winner.username} (${winner.score} pts)`);
+  console.log(`[GameEngine] Game ended — room: ${room.roomId} | winner: ${winner.username} (${winner.score} pts)`);
 
   io.to(room.roomId).emit('game_ended', {
-    roomId: room.roomId,
-    winner: { userId: winner.userId, username: winner.username, score: winner.score },
+    roomId:      room.roomId,
+    winner:      { userId: winner.userId, username: winner.username, score: winner.score },
     leaderboard,
-    timestamp: Date.now()
+    timestamp:   Date.now()
   });
 }
 
 /**
- * Resets game state and all player scores back to zero.
+ * Resets all game state and player scores to zero.
+ * Only allowed when not mid-round.
+ * @param {Object} room
+ * @param {Object} io
  */
 export async function resetGame(room, io) {
   if (room.gameState === 'playing' || room.gameState === 'round_end') {
-    return { success: false, error: 'Cannot reset game while round is in progress' };
+    return { success: false, error: 'Cannot reset while a round is in progress' };
   }
 
   stopRoundTimer(room.roomId);
 
-  room.gameState = 'waiting'; room.currentDrawerId = null; room.currentWord = null;
-  room.roundNumber = 0; room.roundEndTime = null;
-  room.correctGuessers.clear();
+  room.gameState       = 'waiting';
+  room.currentDrawerId = null;
+  room.currentWord     = null;
+  room.roundNumber     = 0;
+  room.roundEndTime    = null;
+  room.correctGuessers = new Set();
 
-  for (const p of room.players.values()) { p.score = 0; p.hasGuessedCurrentRound = false; }
+  for (const p of room.players.values()) {
+    p.score                  = 0;
+    p.hasGuessedCurrentRound = false;
+  }
 
   await Promise.all([
     roomStore.saveRoomMeta(room),
     roomStore.savePlayers(room.roomId, room.players)
   ]);
 
-  console.log(`[GameEngine] Game reset in room ${room.roomId}`);
+  console.log(`[GameEngine] Game reset — room: ${room.roomId}`);
 
-  io.to(room.roomId).emit('game_reset', { roomId: room.roomId, message: 'Game has been reset', timestamp: Date.now() });
+  io.to(room.roomId).emit('game_reset', {
+    roomId: room.roomId, message: 'Game has been reset', timestamp: Date.now()
+  });
   io.to(room.roomId).emit('player_list_update', {
-    roomId: room.roomId,
+    roomId:  room.roomId,
     players: [...room.players.values()].map(p => ({
       userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score
     }))
@@ -355,32 +607,49 @@ export async function resetGame(room, io) {
 }
 
 /**
- * Stops the game completely (forced stop or insufficient players).
+ * Force-stops the game (e.g. insufficient players mid-game).
+ * @param {Object} room
+ * @param {Object} io
+ * @param {string} reason
  */
 export async function stopGame(room, io, reason = 'Game ended') {
   stopRoundTimer(room.roomId);
 
-  room.gameState = 'waiting'; room.currentDrawerId = null; room.currentWord = null;
-  room.roundNumber = 0; room.roundEndTime = null;
-  room.correctGuessers.clear();
+  room.gameState       = 'waiting';
+  room.currentDrawerId = null;
+  room.currentWord     = null;
+  room.roundNumber     = 0;
+  room.roundEndTime    = null;
+  room.correctGuessers = new Set();
 
   await roomStore.saveRoomMeta(room);
-  console.log(`[GameEngine] Game stopped in room ${room.roomId} â€” Reason: ${reason}`);
+  console.log(`[GameEngine] Game stopped — room: ${room.roomId} | reason: ${reason}`);
 
   io.to(room.roomId).emit('game_stopped', { roomId: room.roomId, reason, timestamp: Date.now() });
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// In-round player events
+// ────────────────────────────────────────────────────────────────────────────
+
 /**
- * Handles a player's guess â€” time-based scoring, close guess detection.
+ * Processes a player's word guess with time-based scoring.
+ * If every non-drawer guesses correctly, ends the round early.
+ *
+ * @param {Object} room    - Caller should pass a freshly-fetched room for accuracy
+ * @param {string} userId
+ * @param {string} guess
+ * @param {Object} io
+ * @param {Object} socket
  * @returns {Promise<{success:boolean, correct?:boolean, close?:boolean, error?:string}>}
  */
 export async function handleGuess(room, userId, guess, io, socket) {
-  if (room.gameState !== 'playing') return { success: false, error: 'Game not in progress' };
+  if (room.gameState !== 'playing')    return { success: false, error: 'Game not in progress' };
 
   const player = room.players.get(userId);
-  if (!player)                       return { success: false, error: 'Player not found' };
+  if (!player)                         return { success: false, error: 'Player not found' };
   if (userId === room.currentDrawerId) return { success: false, error: 'Drawer cannot guess' };
-  if (player.hasGuessedCurrentRound)  return { success: false, error: 'Already guessed correctly' };
+  if (player.hasGuessedCurrentRound)   return { success: false, error: 'Already guessed correctly' };
 
   if (isCorrectGuess(guess, room.currentWord)) {
     const pts = calculateTimeBasedScore(room.roundEndTime, room.roundDuration);
@@ -396,20 +665,28 @@ export async function handleGuess(room, userId, guess, io, socket) {
     console.log(`[GameEngine] ${player.username} guessed correctly! +${pts} pts`);
 
     io.to(room.roomId).emit('correct_guess', {
-      roomId: room.roomId, userId: player.userId, username: player.username,
-      pointsEarned: pts, score: player.score, timestamp: Date.now()
+      roomId:       room.roomId,
+      userId:       player.userId,
+      username:     player.username,
+      pointsEarned: pts,
+      score:        player.score,
+      timestamp:    Date.now()
     });
     io.to(room.roomId).emit('player_list_update', {
-      roomId: room.roomId,
+      roomId:  room.roomId,
       players: [...room.players.values()].map(p => ({
-        userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score
+        userId:      p.userId,
+        username:    p.username,
+        isConnected: p.isConnected,
+        score:       p.score
       }))
     });
 
+    // End round early if all non-drawer connected players have guessed.
     const nonDrawers = [...room.players.values()]
       .filter(p => p.isConnected && p.userId !== room.currentDrawerId);
     if (nonDrawers.length > 0 && nonDrawers.every(p => p.hasGuessedCurrentRound)) {
-      console.log('[GameEngine] All players guessed â€” ending round early');
+      console.log('[GameEngine] All players guessed — ending round early');
       stopRoundTimer(room.roomId);
       await roomStore.releaseLock(timerLockKey(room.roomId), INSTANCE_ID);
       await endRound(room, io, 'all_guessed');
@@ -426,30 +703,43 @@ export async function handleGuess(room, userId, guess, io, socket) {
   return { success: true, correct: false, close: false };
 }
 
-/** Called when the current drawer disconnects mid-round. */
+/**
+ * Handles the drawer disconnecting mid-round.
+ * Ends the round immediately to unblock the game.
+ * @param {Object} room
+ * @param {string} userId
+ * @param {Object} io
+ */
 export async function handleDrawerDisconnect(room, userId, io) {
   if (room.gameState === 'playing' && room.currentDrawerId === userId) {
-    console.log('[GameEngine] Drawer disconnected â€” ending round');
+    console.log(`[GameEngine] Drawer ${userId} disconnected — ending round early`);
     stopRoundTimer(room.roomId);
     await roomStore.releaseLock(timerLockKey(room.roomId), INSTANCE_ID);
     await endRound(room, io, 'drawer_left');
   }
 }
 
-/** Stops the game if fewer than 2 connected players remain. */
+/**
+ * Checks connected player count and stops the game if below minimum.
+ * @param {Object} room
+ * @param {Object} io
+ */
 export async function checkPlayerCount(room, io) {
   if (room.gameState === 'playing' || room.gameState === 'round_end') {
     const connected = [...room.players.values()].filter(p => p.isConnected);
     if (connected.length < 2) {
-      console.log('[GameEngine] Insufficient players â€” stopping game');
+      console.log('[GameEngine] Insufficient players — stopping game');
       await stopGame(room, io, 'Not enough players to continue');
     }
   }
 }
 
-/** Cleans up timer resources when a room is deleted. */
+/**
+ * Cleans up all local timer resources when a room is deleted.
+ * @param {string} roomId
+ */
 export function cleanupRoom(roomId) {
   stopRoundTimer(roomId);
-  console.log(`[GameEngine] Cleaned up resources for room ${roomId}`);
+  console.log(`[GameEngine] Resources cleaned up for room ${roomId}`);
 }
 
