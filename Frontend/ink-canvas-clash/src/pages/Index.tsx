@@ -6,6 +6,7 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { PlayerList } from "@/components/PlayerList";
 import { WinnerModal } from "@/components/WinnerModal";
 import { CorrectGuessOverlay } from "@/components/CorrectGuessOverlay";
+import { WordSelectionModal } from "@/components/WordSelectionModal";
 import { useGameSocket } from "@/hooks/useGameSocket";
 import { useGameStore } from "@/store/gameStore";
 
@@ -104,6 +105,7 @@ const Index = () => {
       )}
 
       {/*  Overlays  */}
+      <WordSelectionModal />
       <WinnerModal />
       <CorrectGuessOverlay />
     </div>

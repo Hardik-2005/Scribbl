@@ -47,6 +47,9 @@ export interface GameState {
   winner: Player | null;
   // Correct guess animation
   showCorrectAnimation: boolean;
+  // Word selection (drawer only)
+  wordOptions: string[];
+  showWordSelection: boolean;
 }
 
 interface GameActions {
@@ -66,6 +69,8 @@ interface GameActions {
   setBrushColor: (color: string) => void;
   setWinner: (winner: Player | null) => void;
   setShowCorrectAnimation: (show: boolean) => void;
+  setWordOptions: (words: string[]) => void;
+  setShowWordSelection: (show: boolean) => void;
   updatePlayerScore: (playerId: string, score: number) => void;
   isLocalPlayerDrawer: () => boolean;
   reset: () => void;
@@ -91,6 +96,8 @@ const initialState: GameState = {
   brushColor: "#FFFFFF",
   winner: null,
   showCorrectAnimation: false,
+  wordOptions: [],
+  showWordSelection: false,
 };
 
 export const useGameStore = create<GameState & GameActions>((set, get) => ({
@@ -117,6 +124,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   setBrushColor: (color) => set({ brushColor: color }),
   setWinner: (winner) => set({ winner }),
   setShowCorrectAnimation: (show) => set({ showCorrectAnimation: show }),
+  setWordOptions: (words) => set({ wordOptions: words }),
+  setShowWordSelection: (show) => set({ showWordSelection: show }),
   updatePlayerScore: (playerId, score) =>
     set((state) => ({
       players: state.players.map((p) =>

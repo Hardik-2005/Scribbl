@@ -93,13 +93,21 @@ function hydrateRoom(meta, playerFields) {
     roundDuration:    parseInt(meta.roundDuration) || 60,
     createdAt:        parseInt(meta.createdAt)     || Date.now(),
     lastActivity:     parseInt(meta.lastActivity)  || Date.now(),
-    correctGuessers:  new Set(
-                        meta.correctGuessers
-                          ? JSON.parse(meta.correctGuessers)
-                          : []
-                      ),
-    players:          new Map(),
-    strokeHistory:    [] // strokes accessed via getStrokes() — not bulk-loaded here
+    correctGuessers:      new Set(
+                            meta.correctGuessers
+                              ? JSON.parse(meta.correctGuessers)
+                              : []
+                          ),
+    // ── Turn-based round system ──────────────────────────────────
+    totalTurns:           parseInt(meta.totalTurns)  || 0,
+    playerOrder:          meta.playerOrder ? JSON.parse(meta.playerOrder) : [],
+    difficulty:           meta.difficulty  || 'medium',
+    // ── Word selection phase ─────────────────────────────────────
+    wordSelectionEndTime: meta.wordSelectionEndTime && meta.wordSelectionEndTime !== '0'
+                            ? parseInt(meta.wordSelectionEndTime) : null,
+    currentWordOptions:   meta.currentWordOptions ? JSON.parse(meta.currentWordOptions) : [],
+    players:              new Map(),
+    strokeHistory:        []
   };
 
   // Fix empty-string sentinels stored when value was null
@@ -177,16 +185,21 @@ export async function saveRoomMeta(room) {
   const client = getRedisClient();
 
   await client.hSet(roomKey(room.roomId), {
-    roomId:           room.roomId,
-    gameState:        room.gameState,
-    roundNumber:      String(room.roundNumber),
-    totalRounds:      String(room.totalRounds),
-    currentDrawerId:  room.currentDrawerId  || '',
-    currentWord:      room.currentWord      || '',
-    roundEndTime:     room.roundEndTime     ? String(room.roundEndTime) : '0',
-    roundDuration:    String(room.roundDuration),
-    lastActivity:     String(Date.now()),
-    correctGuessers:  JSON.stringify([...(room.correctGuessers || new Set())])
+    roomId:               room.roomId,
+    gameState:            room.gameState,
+    roundNumber:          String(room.roundNumber),
+    totalRounds:          String(room.totalRounds),
+    currentDrawerId:      room.currentDrawerId  || '',
+    currentWord:          room.currentWord      || '',
+    roundEndTime:         room.roundEndTime     ? String(room.roundEndTime) : '0',
+    roundDuration:        String(room.roundDuration),
+    lastActivity:         String(Date.now()),
+    correctGuessers:      JSON.stringify([...(room.correctGuessers || new Set())]),
+    totalTurns:           String(room.totalTurns ?? 0),
+    playerOrder:          JSON.stringify(room.playerOrder ?? []),
+    difficulty:           room.difficulty    || 'medium',
+    wordSelectionEndTime: room.wordSelectionEndTime ? String(room.wordSelectionEndTime) : '0',
+    currentWordOptions:   JSON.stringify(room.currentWordOptions ?? []),
   });
 }
 

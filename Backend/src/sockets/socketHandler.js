@@ -1,6 +1,6 @@
 ﻿import roomManager from '../rooms/roomManager.js';
 import { generateUserId } from '../utils/idGenerator.js';
-import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, resetGame } from '../game/gameEngine.js';
+import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, resetGame, handleWordSelection } from '../game/gameEngine.js';
 
 /**
  * Socket event handler â€” all callbacks are async to support Redis-backed roomManager.
@@ -232,7 +232,7 @@ export function handleSocketConnection(io, socket) {
   // ============================================
   socket.on('start_game', async (payload, callback) => {
     try {
-      const { roomId, totalRounds } = payload;
+      const { roomId, totalRounds, difficulty } = payload;
 
       if (!roomId || typeof roomId !== 'string') {
         const error = { success: false, error: 'Invalid room ID' };
@@ -273,7 +273,7 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
-      const result = await startGame(room, rounds, io);
+      const result = await startGame(room, rounds, io, difficulty || 'medium');
       if (!result.success) {
         const error = { success: false, error: result.error };
         socket.emit('game_error', error);
@@ -289,6 +289,29 @@ export function handleSocketConnection(io, socket) {
       const errorResponse = { success: false, error: error.message };
       socket.emit('game_error', errorResponse);
       if (callback) callback(errorResponse);
+    }
+  });
+
+  // ============================================
+  // Event: select_word
+  // ============================================
+  socket.on('select_word', async (payload, callback) => {
+    try {
+      const { roomId, word } = payload;
+      if (!roomId || !word) {
+        if (callback) callback({ success: false, error: 'roomId and word required' });
+        return;
+      }
+      const playerInfo = await roomManager.getPlayerBySocketId(socket.id);
+      if (!playerInfo) {
+        if (callback) callback({ success: false, error: 'Not in a room' });
+        return;
+      }
+      const result = await handleWordSelection(roomId, playerInfo.userId, word, io);
+      if (callback) callback(result);
+    } catch (err) {
+      console.error('[Socket] Error in select_word:', err.message);
+      if (callback) callback({ success: false, error: err.message });
     }
   });
 

@@ -41,7 +41,7 @@
  */
 
 import * as roomStore from '../redis/roomStore.js';
-import { getRandomWord, maskWord, isCorrectGuess } from './wordService.js';
+import { getWordOptions, markWordUsed, clearUsedWords, getRandomWord, maskWord, isCorrectGuess } from './wordService.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -55,6 +55,7 @@ const ROUND_END_DELAY        = 5000; // ms pause between rounds
 const DRAWER_BONUS_POINTS    = 50;
 const TIMER_LOCK_TTL         = 70;   // seconds — must exceed max round duration
 const ROUND_LOCK_TTL         = 15;   // seconds — covers round-start setup phase only
+const WORD_SELECTION_TIMEOUT = 10;   // seconds for drawer to pick a word
 
 /**
  * Unique identity for this server process.
@@ -67,7 +68,8 @@ const INSTANCE_ID = `pid-${process.pid}-${Date.now()}`;
  * In-process registry of active setInterval handles.
  * Only this instance's timers are tracked here; other instances have their own.
  */
-const roomTimers = new Map();
+const roomTimers          = new Map(); // roomId → setInterval handle
+const wordSelectionTimers = new Map(); // roomId → setTimeout handle
 
 // ────────────────────────────────────────────────────────────────────────────
 // Lock key helpers
@@ -98,12 +100,21 @@ export function stopRoundTimer(roomId) {
 }
 
 /**
- * Round-robin drawer selection over connected players sorted by join time.
- * Called after roundNumber has already been incremented.
+ * Selects the drawer for the current turn using the frozen playerOrder array.
+ * Falls back to round-robin over connected players for backward compatibility.
  * @param {Object} room - Hydrated room
- * @returns {Object|null}
+ * @returns {Object|null} player object
  */
-function selectDrawer(room) {
+function selectDrawerForTurn(room) {
+  if (room.playerOrder && room.playerOrder.length > 0) {
+    const idx      = (room.roundNumber - 1) % room.playerOrder.length;
+    const drawerId = room.playerOrder[idx];
+    const p        = room.players.get(drawerId);
+    if (p) return p;
+    // Assigned player left — find first connected player
+    return [...room.players.values()].find(p => p.isConnected) ?? null;
+  }
+  // Legacy fallback
   const connected = [...room.players.values()]
     .filter(p => p.isConnected)
     .sort((a, b) => a.joinedAt - b.joinedAt);
@@ -158,7 +169,7 @@ function calculateTimeBasedScore(roundEndTime, roundDuration) {
  * @param {Object} io          - Socket.IO server instance
  * @returns {Promise<{success:boolean, error?:string}>}
  */
-export async function startGame(room, totalRounds, io) {
+export async function startGame(room, totalRounds, io, difficulty = 'medium') {
   // ── Input guards (fast-path, no Redis) ────────────────────────────────
   if (totalRounds < MIN_ROUNDS || totalRounds > MAX_ROUNDS) {
     return { success: false, error: `Total rounds must be between ${MIN_ROUNDS} and ${MAX_ROUNDS}` };
@@ -182,7 +193,20 @@ export async function startGame(room, totalRounds, io) {
     return { success: false, error: 'Game already started by another instance' };
   }
 
-  console.log(`[GameEngine] Game started — room: ${room.roomId} | rounds: ${totalRounds} | instance: ${INSTANCE_ID}`);
+  console.log(`[GameEngine] Game started — room: ${room.roomId} | rounds: ${totalRounds} | difficulty: ${difficulty} | instance: ${INSTANCE_ID}`);
+
+  // Initialise turn-based round system: freeze player order & compute total turns
+  const initRoom = await roomStore.getRoom(room.roomId);
+  if (initRoom) {
+    const ordered = [...initRoom.players.values()]
+      .filter(p => p.isConnected)
+      .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+    initRoom.playerOrder = ordered.map(p => p.userId);
+    initRoom.totalTurns  = totalRounds * initRoom.playerOrder.length;
+    initRoom.difficulty  = difficulty;
+    await roomStore.saveRoomMeta(initRoom);
+    console.log(`[GameEngine] Turn order: [${initRoom.playerOrder.join(', ')}] | totalTurns: ${initRoom.totalTurns}`);
+  }
 
   io.to(room.roomId).emit('game_started', {
     roomId:      room.roomId,
@@ -268,83 +292,174 @@ export async function startRound(roomRef, io) {
 
     // ── Step 5: Mutate round state ───────────────────────────────────────
     room.roundNumber++;
-    room.correctGuessers = new Set();
-    room.gameState       = 'playing';
+    room.correctGuessers     = new Set();
+    room.gameState           = 'playing';
+    room.currentWord         = null;
+    room.roundEndTime        = null;
+    room.currentWordOptions  = [];
     for (const p of room.players.values()) p.hasGuessedCurrentRound = false;
 
-    const drawer = selectDrawer(room);
+    const drawer = selectDrawerForTurn(room);
     if (!drawer) {
       await stopGame(room, io, 'No drawer available');
       return;
     }
-
     room.currentDrawerId = drawer.userId;
 
-    // ── Step 6: Generate word — ONLY inside the lock ─────────────────────
-    // This is the single call site for getRandomWord().
-    // Executing here guarantees all players receive the same word.
-    room.currentWord  = getRandomWord();
-    room.roundEndTime = Date.now() + (room.roundDuration * 1000);
+    // Generate 3 word options -- drawer picks, not auto-assigned
+    const wordOptions = await getWordOptions(room.difficulty || 'medium', 3, roomId);
+    room.currentWordOptions   = wordOptions;
+    room.wordSelectionEndTime = Date.now() + (WORD_SELECTION_TIMEOUT * 1000);
 
-    // ── Step 7: Persist ALL state to Redis BEFORE any emit ───────────────
+    const playerCount  = room.playerOrder?.length || 1;
+    const displayRound = Math.ceil(room.roundNumber / playerCount);
+
     await Promise.all([
       roomStore.saveRoomMeta(room),
       roomStore.savePlayers(roomId, room.players)
     ]);
 
     console.log(
-      `[GameEngine] Round ${room.roundNumber}/${room.totalRounds} persisted — ` +
-      `room: ${roomId} | drawer: ${drawer.username} | word: ${room.currentWord} | instance: ${INSTANCE_ID}`
+      `[GameEngine] Turn ${room.roundNumber}/${room.totalTurns || room.totalRounds} persisted -- ` +
+      `room: ${roomId} | drawer: ${drawer.username} | instance: ${INSTANCE_ID}`
     );
 
-    // ── Step 8: Emit — ONLY after Redis confirms the write ───────────────
-
-    // Broadcast round info to all players (word is NOT included here).
     io.to(roomId).emit('round_started', {
       roomId,
-      roundNumber:   room.roundNumber,
+      roundNumber:   displayRound,
       totalRounds:   room.totalRounds,
+      turnNumber:    room.roundNumber,
+      totalTurns:    room.totalTurns || 0,
       drawerId:      drawer.userId,
       drawerName:    drawer.username,
       roundDuration: room.roundDuration,
-      roundEndTime:  room.roundEndTime,  // absolute ms — client derives countdown
+      roundEndTime:  null,
       timestamp:     Date.now()
     });
 
-    // Drawer receives the word privately.
     const drawerSock = io.sockets.sockets.get(drawer.socketId);
     if (drawerSock) {
-      drawerSock.emit('word_reveal', {
-        word:        room.currentWord,
-        roundNumber: room.roundNumber
+      drawerSock.emit('word_options', {
+        words:          wordOptions,
+        timeoutSeconds: WORD_SELECTION_TIMEOUT,
+        roundNumber:    displayRound,
+        turnNumber:     room.roundNumber
       });
     }
 
-    // Everyone else receives the masked hint.
-    const masked = maskWord(room.currentWord);
     for (const p of room.players.values()) {
       if (p.userId !== drawer.userId && p.isConnected) {
         const s = io.sockets.sockets.get(p.socketId);
-        if (s) {
-          s.emit('word_hint', {
-            hint:        masked,
-            wordLength:  room.currentWord.length,
-            roundNumber: room.roundNumber
-          });
-        }
+        if (s) s.emit('word_choosing', { drawerName: drawer.username, roundNumber: displayRound });
       }
     }
 
   } finally {
-    // ── Step 9: Release round lock — always ──────────────────────────────
-    // The finally block guarantees release even if an exception occurred,
-    // preventing deadlock on the next round start.
     await roomStore.releaseLock(lockKey, INSTANCE_ID);
   }
 
-  // ── Step 10: Compete for the timer lock (outside the round lock) ──────
-  // Round lock is already released.  Timer lock is a separate lifetime.
+  clearWordSelectionTimer(roomId);
+  const selTimer = setTimeout(
+    () => autoSelectWord(roomId, io).catch(e => console.error('[GameEngine] autoSelectWord error:', e.message)),
+    WORD_SELECTION_TIMEOUT * 1000
+  );
+  wordSelectionTimers.set(roomId, selTimer);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Word selection phase
+// ────────────────────────────────────────────────────────────────────────────
+
+function clearWordSelectionTimer(roomId) {
+  const t = wordSelectionTimers.get(roomId);
+  if (t) { clearTimeout(t); wordSelectionTimers.delete(roomId); }
+}
+
+/**
+ * Called once a word has been chosen (by drawer or auto-select).
+ * Sets roundEndTime, broadcasts word_reveal / word_hint, starts drawing timer.
+ */
+async function startDrawingPhase(roomId, io) {
+  const room = await roomStore.getRoom(roomId);
+  if (!room || !room.currentWord || room.gameState !== 'playing') return;
+
+  room.roundEndTime = Date.now() + (room.roundDuration * 1000);
+  await roomStore.saveRoomMeta(room);
+
+  const playerCount  = room.playerOrder?.length || 1;
+  const displayRound = Math.ceil(room.roundNumber / playerCount);
+  const masked       = maskWord(room.currentWord);
+
+  // Notify all players of the real roundEndTime now that drawing starts
+  io.to(roomId).emit('round_timer_start', {
+    roomId,
+    roundEndTime:  room.roundEndTime,
+    roundDuration: room.roundDuration,
+    roundNumber:   displayRound,
+  });
+
+  for (const p of room.players.values()) {
+    if (!p.isConnected) continue;
+    const s = io.sockets.sockets.get(p.socketId);
+    if (!s) continue;
+    if (p.userId === room.currentDrawerId) {
+      s.emit('word_reveal', { word: room.currentWord, roundNumber: displayRound });
+    } else {
+      s.emit('word_hint', { hint: masked, wordLength: room.currentWord.length, roundNumber: displayRound });
+    }
+  }
+
   await startRoundTimer(roomId, io);
+}
+
+async function autoSelectWord(roomId, io) {
+  clearWordSelectionTimer(roomId);
+  const room = await roomStore.getRoom(roomId);
+  if (!room || room.gameState !== 'playing' || room.currentWord) return;
+
+  const opts   = room.currentWordOptions;
+  const chosen = opts.length > 0 ? opts[Math.floor(Math.random() * opts.length)] : getRandomWord();
+
+  room.currentWord        = chosen;
+  room.currentWordOptions = [];
+  await roomStore.saveRoomMeta(room);
+  markWordUsed(roomId, chosen);
+
+  console.log(`[GameEngine] Auto-selected word "${chosen}" for room ${roomId}`);
+  await startDrawingPhase(roomId, io);
+}
+
+/**
+ * Handles a drawer's word selection (called from socketHandler).
+ * @param {string} roomId
+ * @param {string} userId  - Must match currentDrawerId
+ * @param {string} chosenWord
+ * @param {Object} io
+ * @returns {Promise<{success:boolean, error?:string}>}
+ */
+export async function handleWordSelection(roomId, userId, chosenWord, io) {
+  clearWordSelectionTimer(roomId);
+
+  const room = await roomStore.getRoom(roomId);
+  if (!room)                          return { success: false, error: 'Room not found' };
+  if (room.gameState !== 'playing')   return { success: false, error: 'Game not active' };
+  if (userId !== room.currentDrawerId) return { success: false, error: 'Not your turn to draw' };
+  if (room.currentWord)               return { success: false, error: 'Word already selected' };
+
+  const word = typeof chosenWord === 'string' ? chosenWord.toLowerCase().trim() : '';
+  if (!room.currentWordOptions.includes(word)) {
+    // If options are somehow gone (reconnect scenario), accept any valid word
+    if (word.length < 2) return { success: false, error: 'Invalid word choice' };
+  }
+
+  room.currentWord        = word;
+  room.currentWordOptions = [];
+  await roomStore.saveRoomMeta(room);
+  markWordUsed(roomId, word);
+
+  console.log(`[GameEngine] Drawer selected "${word}" in room ${roomId}`);
+  await startDrawingPhase(roomId, io);
+  return { success: true };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -500,7 +615,9 @@ export async function endRound(room, io, reason = 'time_up') {
 
   const roomId    = room.roomId;
   const nextRound = room.roundNumber + 1;
-  const isLast    = room.roundNumber >= room.totalRounds;
+  const isLast    = room.totalTurns > 0
+    ? room.roundNumber >= room.totalTurns
+    : room.roundNumber >= room.totalRounds;
 
   if (isLast) {
     setTimeout(() =>
@@ -543,6 +660,7 @@ export async function endGame(roomRef, io) {
   if (!room) return;
 
   stopRoundTimer(room.roomId);
+  clearUsedWords(room.roomId);
   room.gameState = 'finished';
   await roomStore.saveRoomMeta(room);
 
@@ -573,6 +691,7 @@ export async function resetGame(room, io) {
   }
 
   stopRoundTimer(room.roomId);
+  clearUsedWords(room.roomId);
 
   room.gameState       = 'waiting';
   room.currentDrawerId = null;
@@ -614,6 +733,7 @@ export async function resetGame(room, io) {
  */
 export async function stopGame(room, io, reason = 'Game ended') {
   stopRoundTimer(room.roomId);
+  clearUsedWords(room.roomId);
 
   room.gameState       = 'waiting';
   room.currentDrawerId = null;

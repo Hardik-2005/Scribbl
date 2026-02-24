@@ -63,8 +63,14 @@ export interface ClientToServerEvents {
 
   /** Start the game in a room (must be in the room). */
   start_game: (
-    payload: { roomId: string; totalRounds: number },
+    payload: { roomId: string; totalRounds: number; difficulty?: 'easy' | 'medium' | 'hard' },
     callback?: (res: { success: boolean; message?: string; error?: string }) => void
+  ) => void;
+
+  /** Drawer selects one of the offered words. */
+  select_word: (
+    payload: { roomId: string; word: string },
+    callback?: (res: { success: boolean; error?: string }) => void
   ) => void;
 
   /** Submit a word guess while a round is active. */
@@ -135,9 +141,19 @@ export interface ServerToClientEvents {
 
   // ── Round ─────────────────────────────────────────────────────────────────
   round_started: (p: {
-    roomId: string; roundNumber: number; totalRounds: number;
-    drawerId: string; drawerName: string; roundDuration: number;
-    roundEndTime: number; timestamp: number;
+    roomId: string;
+    /** Human-readable round number (1-based, resets each full rotation) */
+    roundNumber: number;
+    totalRounds: number;
+    /** Absolute turn counter across whole game */
+    turnNumber: number;
+    totalTurns: number;
+    drawerId: string;
+    drawerName: string;
+    roundDuration: number;
+    /** null until word is selected */
+    roundEndTime: number | null;
+    timestamp: number;
   }) => void;
   round_ended: (p: {
     roomId: string; roundNumber: number; totalRounds: number;
@@ -147,11 +163,17 @@ export interface ServerToClientEvents {
   }) => void;
 
   // ── Word ──────────────────────────────────────────────────────────────────
-  word_reveal: (p: { word: string; roundNumber: number }) => void;
-  word_hint:   (p: { hint: string; wordLength: number; roundNumber: number }) => void;
+  word_reveal:  (p: { word: string; roundNumber: number }) => void;
+  word_hint:    (p: { hint: string; wordLength: number; roundNumber: number }) => void;
+  /** Sent only to the drawer — 3 word choices to pick from */
+  word_options: (p: { words: string[]; timeoutSeconds: number; roundNumber: number; turnNumber: number }) => void;
+  /** Sent to non-drawers while drawer is choosing */
+  word_choosing:(p: { drawerName: string; roundNumber: number }) => void;
 
-  // ── Timer — actual event name from backend is round_timer_update ──────────
+  // ── Timer ─────────────────────────────────────────────────────────────────
   round_timer_update: (p: { roomId: string; remainingTime: number; roundNumber: number; roundEndTime: number }) => void;
+  /** Emitted once the word is chosen and the drawing phase clock starts */
+  round_timer_start:  (p: { roomId: string; roundEndTime: number; roundDuration: number; roundNumber: number }) => void;
 
   // ── Guessing ──────────────────────────────────────────────────────────────
   correct_guess: (p: { roomId: string; userId: string; username: string; pointsEarned: number; score: number; timestamp: number }) => void;

@@ -114,21 +114,25 @@ export function useGameSocket() {
     // ── Round ────────────────────────────────────────────────────────────────
     const onRoundStarted = (p: {
       roundNumber: number; totalRounds: number;
+      turnNumber?: number; totalTurns?: number;
       drawerId: string; drawerName: string;
-      roundDuration: number; roundEndTime: number;
+      roundDuration: number; roundEndTime: number | null;
     }) => {
       store.setStatus("playing");
       store.setRound(p.roundNumber, p.totalRounds);
       store.setCurrentDrawer(p.drawerId);
       store.setTotalTime(p.roundDuration);
-      store.setTimeLeft(Math.ceil((p.roundEndTime - Date.now()) / 1000));
+      // roundEndTime is null during word selection — timer starts on round_timer_start
+      store.setTimeLeft(p.roundEndTime ? Math.max(0, Math.ceil((p.roundEndTime - Date.now()) / 1000)) : p.roundDuration);
       store.setWord("");
       store.setWordHint("");
       store.setShowCorrectAnimation(false);
+      store.setShowWordSelection(false);
+      store.setWordOptions([]);
 
       const isMe = useGameStore.getState().localPlayerId === p.drawerId;
       if (!isMe) {
-        toast.info(`Round ${p.roundNumber}: ${p.drawerName} is drawing!`);
+        toast.info(`Round ${p.roundNumber}: ${p.drawerName} is choosing a word…`);
       }
     };
 
@@ -146,6 +150,23 @@ export function useGameSocket() {
         p.reason === "all_guessed" ? "Everyone guessed!" :
         p.reason === "drawer_left" ? "Drawer left." : p.reason;
       toast(`Round ${p.roundNumber} ended — ${reasonLabel} The word was "${p.word}"`);
+    };
+
+    // ── Word selection ────────────────────────────────────────────────────────
+    const onWordOptions = (p: { words: string[]; timeoutSeconds: number }) => {
+      store.setWordOptions(p.words);
+      store.setShowWordSelection(true);
+    };
+
+    const onWordChoosing = (p: { drawerName: string; roundNumber: number }) => {
+      toast.info(`${p.drawerName} is choosing a word…`);
+    };
+
+    const onRoundTimerStart = (p: { roundEndTime: number; roundDuration: number }) => {
+      // Word was chosen — real drawing clock starts now
+      store.setTotalTime(p.roundDuration);
+      store.setTimeLeft(Math.max(0, Math.ceil((p.roundEndTime - Date.now()) / 1000)));
+      store.setShowWordSelection(false);
     };
 
     // ── Word ─────────────────────────────────────────────────────────────────
@@ -214,6 +235,10 @@ export function useGameSocket() {
     on("round_started",       onRoundStarted);
     on("round_ended",         onRoundEnded);
 
+    on("word_options",        onWordOptions);
+    on("word_choosing",       onWordChoosing);
+    on("round_timer_start",   onRoundTimerStart);
+
     on("word_reveal",         onWordReveal);
     on("word_hint",           onWordHint);
 
@@ -248,6 +273,10 @@ export function useGameSocket() {
 
       off("round_started",       onRoundStarted);
       off("round_ended",         onRoundEnded);
+
+      off("word_options",        onWordOptions);
+      off("word_choosing",       onWordChoosing);
+      off("round_timer_start",   onRoundTimerStart);
 
       off("word_reveal",         onWordReveal);
       off("word_hint",           onWordHint);
