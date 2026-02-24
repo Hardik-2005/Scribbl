@@ -7,7 +7,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000";
 export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
   BACKEND_URL,
   {
-    transports: ["websocket", "polling"], // websocket first, polling as fallback
+    transports: ["polling", "websocket"], // polling first so Render's proxy can handshake, then upgrades to ws
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
