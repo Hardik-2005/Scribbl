@@ -22,6 +22,7 @@ export interface GameState {
   // Round
   currentRound: number;
   totalRounds: number;
+  selectedRounds: number;
   // Players
   players: Player[];
   currentDrawer: string;
@@ -51,6 +52,7 @@ export interface GameState {
 interface GameActions {
   setRoomId: (roomId: string) => void;
   setRound: (current: number, total: number) => void;
+  setSelectedRounds: (n: number) => void;
   setPlayers: (players: Player[]) => void;
   setCurrentDrawer: (drawerId: string) => void;
   setWord: (word: string) => void;
@@ -73,6 +75,7 @@ const initialState: GameState = {
   roomId: "",
   currentRound: 0,
   totalRounds: 3,
+  selectedRounds: 3,
   players: [],
   currentDrawer: "",
   word: "",
@@ -95,6 +98,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   setRoomId: (roomId) => set({ roomId }),
   setRound: (current, total) => set({ currentRound: current, totalRounds: total }),
+  setSelectedRounds: (n) => set({ selectedRounds: n }),
   setPlayers: (players) => set({ players }),
   setCurrentDrawer: (drawerId) =>
     set((state) => ({
