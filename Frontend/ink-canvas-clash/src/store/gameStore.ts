@@ -36,6 +36,8 @@ export interface GameState {
   messages: ChatMessage[];
   // Game status
   status: "lobby" | "playing" | "round_end" | "game_end";
+  // Host
+  hostId: string;
   // Local player
   localPlayerId: string;
   localUsername: string;
@@ -64,6 +66,7 @@ interface GameActions {
   setTotalTime: (time: number) => void;
   addMessage: (message: ChatMessage) => void;
   setStatus: (status: GameState["status"]) => void;
+  setHostId: (hostId: string) => void;
   setLocalPlayer: (id: string, username: string) => void;
   setBrushSize: (size: number) => void;
   setBrushColor: (color: string) => void;
@@ -89,6 +92,7 @@ const initialState: GameState = {
   totalTime: 60,
   messages: [],
   status: "lobby",
+  hostId: "",
   localPlayerId: "",
   localUsername: "",
   isDrawing: false,
@@ -119,6 +123,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
   setStatus: (status) => set({ status }),
+  setHostId: (hostId) => set({ hostId }),
   setLocalPlayer: (id, username) => set({ localPlayerId: id, localUsername: username }),
   setBrushSize: (size) => set({ brushSize: size }),
   setBrushColor: (color) => set({ brushColor: color }),

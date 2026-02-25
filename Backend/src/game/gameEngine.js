@@ -717,6 +717,7 @@ export async function resetGame(room, io) {
   });
   io.to(room.roomId).emit('player_list_update', {
     roomId:  room.roomId,
+    hostId:  room.hostId || '',
     players: [...room.players.values()].map(p => ({
       userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score
     }))
@@ -794,6 +795,7 @@ export async function handleGuess(room, userId, guess, io, socket) {
     });
     io.to(room.roomId).emit('player_list_update', {
       roomId:  room.roomId,
+      hostId:  room.hostId || '',
       players: [...room.players.values()].map(p => ({
         userId:      p.userId,
         username:    p.username,

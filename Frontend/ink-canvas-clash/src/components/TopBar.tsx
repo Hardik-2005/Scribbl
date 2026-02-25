@@ -17,12 +17,13 @@ export const TopBar = () => {
     status,
     selectedRounds,
     setSelectedRounds,
+    hostId,
   } = useGameStore();
 
   const navigate = useNavigate();
   const isDrawer     = localPlayerId === currentDrawer;
   const drawerPlayer = players.find((p) => p.id === currentDrawer);
-  const isHost       = players.length > 0 && players[0].id === localPlayerId;
+  const isHost       = hostId !== "" && hostId === localPlayerId;
 
   const handleStartGame = () => {
     if (!roomId) return;

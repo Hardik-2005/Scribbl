@@ -38,6 +38,7 @@ const CREATE_ROOM_SCRIPT = `
     "roundEndTime",      "0",
     "roundDuration",     ARGV[3],
     "correctGuessers",   "[]",
+    "hostId",            "",
     "createdAt",         ARGV[4],
     "lastActivity",      ARGV[4]
   )
@@ -106,6 +107,8 @@ function hydrateRoom(meta, playerFields) {
     wordSelectionEndTime: meta.wordSelectionEndTime && meta.wordSelectionEndTime !== '0'
                             ? parseInt(meta.wordSelectionEndTime) : null,
     currentWordOptions:   meta.currentWordOptions ? JSON.parse(meta.currentWordOptions) : [],
+    // ── Host ─────────────────────────────────────────────────────
+    hostId:               meta.hostId || "",
     players:              new Map(),
     strokeHistory:        []
   };
@@ -472,6 +475,17 @@ export async function atomicStartGame(roomId, totalRounds) {
  * NOTE: SCAN-based; avoid on very large keyspaces in hot paths.
  * @returns {Promise<number>}
  */
+/**
+ * Stores the host (room creator) userId into the room metadata.
+ * Idempotent — safe to call multiple times (only actually used once on creation).
+ * @param {string} roomId
+ * @param {string} userId
+ */
+export async function setRoomHost(roomId, userId) {
+  const client = getRedisClient();
+  await client.hSet(roomKey(roomId), { hostId: userId });
+}
+
 export async function getRoomCount() {
   const client = getRedisClient();
   let count    = 0;

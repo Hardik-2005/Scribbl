@@ -58,8 +58,9 @@ export function useGameSocket() {
     };
 
     // ── Room / player events ────────────────────────────────────────────────
-    const onPlayerListUpdate = (p: { roomId: string; players: BackendPlayer[] }) => {
+    const onPlayerListUpdate = (p: { roomId: string; hostId?: string; players: BackendPlayer[] }) => {
       store.setPlayers(p.players.map(toStorePlayer));
+      if (p.hostId) store.setHostId(p.hostId);
     };
 
     const onPlayerDisconnected = (p: { roomId: string; userId: string; username: string }) => {

@@ -46,12 +46,14 @@ export function handleSocketConnection(io, socket) {
         const userId = generateUserId();
         const player = { userId, username: username.trim(), socketId: socket.id, isConnected: true, score: 0 };
         await roomManager.joinRoom(roomId, player);
+        await roomManager.setRoomHost(roomId, userId);
         socket.join(roomId);
         const players = await roomManager.getRoomPlayers(roomId);
         const response = { success: true, roomId, userId, username: player.username, message: 'Room created and joined' };
         socket.emit('room_created', response);
         io.to(roomId).emit('player_list_update', {
           roomId,
+          hostId: userId,
           players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
         });
         if (callback) callback(response);
@@ -105,7 +107,10 @@ export function handleSocketConnection(io, socket) {
       await roomManager.joinRoom(roomId, player);
       socket.join(roomId);
 
-      const players = await roomManager.getRoomPlayers(roomId);
+      const [players, room] = await Promise.all([
+        roomManager.getRoomPlayers(roomId),
+        roomManager.getRoom(roomId)
+      ]);
 
       const response = { success: true, roomId, userId, username: player.username, message: 'Joined room successfully' };
       socket.emit('room_joined', response);
@@ -113,6 +118,7 @@ export function handleSocketConnection(io, socket) {
 
       io.to(roomId).emit('player_list_update', {
         roomId,
+        hostId: room ? room.hostId : '',
         players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
       });
 
@@ -205,7 +211,10 @@ export function handleSocketConnection(io, socket) {
       const player  = await roomManager.reassignSocketOnReconnect(roomId, userId, socket.id);
       socket.join(roomId);
 
-      const players = await roomManager.getRoomPlayers(roomId);
+      const [players, room] = await Promise.all([
+        roomManager.getRoomPlayers(roomId),
+        roomManager.getRoom(roomId)
+      ]);
 
       const response = { success: true, roomId, userId: player.userId, username: player.username, message: 'Reconnected successfully' };
       socket.emit('room_joined', response);
@@ -214,6 +223,7 @@ export function handleSocketConnection(io, socket) {
       io.to(roomId).emit('player_reconnected', { roomId, userId: player.userId, username: player.username, timestamp: Date.now() });
       io.to(roomId).emit('player_list_update', {
         roomId,
+        hostId: room ? room.hostId : '',
         players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
       });
 
@@ -597,6 +607,7 @@ export function handleSocketConnection(io, socket) {
         socket.to(roomId).emit('player_disconnected', { roomId, userId, username, timestamp: Date.now() });
         io.to(roomId).emit('player_list_update', {
           roomId,
+          hostId: room ? room.hostId : '',
           players: players.map(p => ({ userId: p.userId, username: p.username, isConnected: p.isConnected, score: p.score }))
         });
 

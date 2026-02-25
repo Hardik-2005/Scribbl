@@ -190,6 +190,15 @@ class RoomManager {
     return roomStore.getSocketMapping(socketId);
   }
 
+  /**
+   * Persists the host userId to room metadata.
+   * @param {string} roomId
+   * @param {string} userId
+   */
+  async setRoomHost(roomId, userId) {
+    return roomStore.setRoomHost(roomId, userId);
+  }
+
   /** @returns {Promise<boolean>} */
   async roomExists(roomId) {
     return roomStore.roomExists(roomId);
