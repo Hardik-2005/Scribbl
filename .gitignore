@@ -6,6 +6,12 @@ node_modules/
 .env.local
 .env.*.local
 
+redis-win/
+dump.rdb
+*.exe
+*.pdb
+EventLog.dll
+00-RELEASENOTES
 # Logs
 logs/
 *.log

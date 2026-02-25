@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+redis-win/
+dump.rdb
+*.exe
+*.pdb
+EventLog.dll
+00-RELEASENOTES
