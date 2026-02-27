@@ -1,65 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 @layer base {
   :root {
-    --background: 225 25% 8%;
-    --foreground: 210 40% 93%;
+    --radius: 0.625rem;
 
-    --card: 225 20% 12%;
-    --card-foreground: 210 40% 93%;
+    /* ── Deep navy esports theme ──────────────────────────── */
+    --background: oklch(0.13 0.025 260);
+    --foreground: oklch(0.985 0 0);
 
-    --popover: 225 20% 12%;
-    --popover-foreground: 210 40% 93%;
+    --card: oklch(0.185 0.02 260);
+    --card-foreground: oklch(0.985 0 0);
 
-    --primary: 185 80% 55%;
-    --primary-foreground: 225 25% 8%;
+    --popover: oklch(0.22 0.018 260);
+    --popover-foreground: oklch(0.985 0 0);
 
-    --secondary: 225 15% 18%;
-    --secondary-foreground: 210 40% 85%;
+    /* Primary = electric blue */
+    --primary: oklch(0.54 0.25 264);
+    --primary-foreground: oklch(0.985 0 0);
 
-    --muted: 225 15% 16%;
-    --muted-foreground: 215 15% 55%;
+    --secondary: oklch(0.22 0.018 260);
+    --secondary-foreground: oklch(0.985 0 0);
 
-    --accent: 280 70% 60%;
-    --accent-foreground: 210 40% 95%;
+    --muted: oklch(0.22 0.018 260);
+    --muted-foreground: oklch(0.65 0.01 260);
 
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 210 40% 98%;
+    --accent: oklch(0.30 0.015 260);
+    --accent-foreground: oklch(0.985 0 0);
 
-    --warning: 30 90% 55%;
-    --warning-foreground: 225 25% 8%;
+    --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.985 0 0);
 
-    --success: 145 65% 45%;
-    --success-foreground: 225 25% 8%;
+    --warning: oklch(0.75 0.18 55);
+    --warning-foreground: oklch(0.185 0.02 260);
 
-    --border: 225 15% 20%;
-    --input: 225 15% 20%;
-    --ring: 185 80% 55%;
+    --success: oklch(0.65 0.2 145);
+    --success-foreground: oklch(0.185 0.02 260);
 
-    --radius: 0.75rem;
+    --border: oklch(0.28 0.015 260);
+    --input: oklch(0.30 0.015 260);
+    --ring: oklch(0.54 0.25 264);
 
-    --sidebar-background: 225 20% 10%;
-    --sidebar-foreground: 210 40% 93%;
-    --sidebar-primary: 185 80% 55%;
-    --sidebar-primary-foreground: 225 25% 8%;
-    --sidebar-accent: 225 15% 16%;
-    --sidebar-accent-foreground: 210 40% 93%;
-    --sidebar-border: 225 15% 20%;
-    --sidebar-ring: 185 80% 55%;
+    /* Charts */
+    --chart-1: oklch(0.81 0.10 252);
+    --chart-2: oklch(0.62 0.19 260);
+    --chart-3: oklch(0.55 0.22 263);
+    --chart-4: oklch(0.49 0.22 264);
+    --chart-5: oklch(0.42 0.18 266);
 
-    --glow-primary: 0 0 20px hsl(185 80% 55% / 0.3);
-    --glow-accent: 0 0 20px hsl(280 70% 60% / 0.3);
-    --glow-warning: 0 0 20px hsl(30 90% 55% / 0.3);
-    --glow-success: 0 0 20px hsl(145 65% 45% / 0.3);
+    /* Sidebar */
+    --sidebar-background: oklch(0.185 0.02 260);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.54 0.25 264);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.22 0.018 260);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.28 0.015 260);
+    --sidebar-ring: oklch(0.44 0.015 260);
 
-    --gradient-bg: linear-gradient(135deg, hsl(225 25% 6%), hsl(225 25% 10%), hsl(230 20% 8%));
-    --gradient-card: linear-gradient(145deg, hsl(225 20% 13%), hsl(225 20% 10%));
-    --gradient-primary: linear-gradient(135deg, hsl(185 80% 55%), hsl(195 85% 45%));
-    --gradient-accent: linear-gradient(135deg, hsl(280 70% 60%), hsl(300 65% 50%));
+    /* ── Custom game tokens ─────────────────────────────────── */
+    --bg-base: oklch(0.13 0.025 260);
+    --bg-surface: oklch(0.185 0.02 260);
+    --text-primary: oklch(0.985 0 0);
+    --text-muted: oklch(0.65 0.01 260);
+    --accent-blue: oklch(0.54 0.25 264);
   }
 }
 
@@ -70,7 +77,6 @@
 
   body {
     @apply bg-background text-foreground font-body antialiased;
-    background: var(--gradient-bg);
     overflow: hidden;
   }
 
@@ -80,31 +86,33 @@
 }
 
 @layer components {
+  /* Solid surface card – no gradients */
   .game-card {
     @apply bg-card rounded-xl border border-border;
-    background: var(--gradient-card);
-    box-shadow: 0 4px 24px hsl(225 25% 4% / 0.5);
+    box-shadow: 0 2px 12px oklch(0 0 0 / 0.5);
   }
 
-  .glow-primary {
-    box-shadow: var(--glow-primary);
+  /* Premium button base */
+  .btn-premium {
+    @apply h-12 text-base font-semibold rounded-xl transition-all duration-150;
+    @apply active:scale-[0.98];
   }
 
-  .glow-accent {
-    box-shadow: var(--glow-accent);
+  .btn-premium:hover {
+    transform: scale(1.02);
   }
 
-  .glow-success {
-    box-shadow: var(--glow-success);
+  .btn-premium:active {
+    transform: scale(0.98);
   }
 
-  .neon-text {
-    text-shadow: 0 0 10px hsl(185 80% 55% / 0.5), 0 0 30px hsl(185 80% 55% / 0.2);
+  /* Section divider */
+  .section-divider {
+    @apply h-px w-full bg-border;
   }
 
   .timer-warning {
     @apply text-destructive;
-    text-shadow: 0 0 10px hsl(0 72% 55% / 0.5);
     animation: pulse-glow 1s ease-in-out infinite;
   }
 
@@ -152,7 +160,7 @@
 
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(225 15% 25%) transparent;
+    scrollbar-color: oklch(0.32 0 0) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -164,7 +172,7 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(225 15% 25%);
+    background: oklch(0.32 0 0);
     border-radius: 2px;
   }
 }

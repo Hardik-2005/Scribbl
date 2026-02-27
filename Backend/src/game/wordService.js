@@ -17,24 +17,24 @@ const WORDS = {
     'rose','leaf','milk','egg','key','bag','cup','fan','bee','ant',
     'owl','pig','fox','cow','lion','wolf','baby','hand','foot','eye',
     'nose','ear','arm','leg','box','pen','map','bed','bus','fly',
+    'ice cream','hot dog','full moon','gold coin','red apple',
   ],
   medium: [
     'piano','castle','rocket','guitar','camera','candle','bridge','cactus',
     'dragon','ladder','mirror','pillow','robot','trophy','volcano','compass',
-    'diamond','bottle','pencil','umbrella','balloon','lantern','anchor','magnet',
-    'pizza','burger','coffee','cookie','teapot','crown','sword','shield',
-    'bucket','basket','puzzle','rainbow','tornado','binoculars','microscope',
-    'telescope','parachute','submarine','helicopter','lighthouse','snowflake',
-    'thunderstorm','waterfall','earthquake','avalanche','hurricane','eclipse',
-    'jungle','desert','glacier','valley','canyon','island','reef','cave',
+    'diamond','bottle','pencil','anchor','magnet','pizza','burger','coffee',
+    'cookie','teapot','crown','sword','shield','bucket','basket','puzzle',
+    'rainbow','tornado','island','cave','jungle','desert','valley','canyon',
+    'snowman','campfire','sunrise','sunset','mushroom','backpack','starfish',
+    'palm tree','race car','goldfish','cupcake','sailboat','firework',
+    'jellyfish','light bulb','drum stick','sand castle','top hat',
   ],
   hard: [
-    'photosynthesis','democracy','evolution','gravity','ecosystem','renaissance',
-    'constellation','labyrinth','metamorphosis','archaeology','hologram','quantum',
-    'telepathy','illusion','serenade','philosophy','paradox','solitude','nostalgia',
-    'entropy','silhouette','symmetry','perspective','reflection','mirage','vortex',
-    'camouflage','turbulence','phenomenon','catastrophe','hibernation','migration',
-    'architecture','civilization','revolution','expedition','exploration','discovery',
+    'gravity','paradox','mirage','vortex','entropy','eclipse','illusion',
+    'solitude','phantom','odyssey','enigma','hologram','symphony','hypnosis',
+    'alchemy','nebula','empathy','utopia','vertigo','insomnia',
+    'black hole','time warp','dark magic','quicksand','whirlpool',
+    'north star','wild fire','acid rain','deep sea','thin ice',
   ],
 };
 
@@ -48,38 +48,69 @@ const usedWordsByRoom = new Map();
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 
-async function fetchFromGemini(difficulty, count = 18) {
+/**
+ * Validates that a word meets drawing-game requirements:
+ * 1-2 words max, each word ≤ 10 chars, letters and spaces only.
+ */
+function isValidWord(w) {
+  if (!w || typeof w !== 'string') return false;
+  const trimmed = w.trim().toLowerCase();
+  if (trimmed.length < 2) return false;
+  if (!/^[a-z ]+$/.test(trimmed)) return false;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length > 2) return false;
+  if (parts.some(p => p.length > 10 || p.length === 0)) return false;
+  return true;
+}
+
+async function fetchFromGemini(difficulty, count = 12) {
   if (!GEMINI_KEY) return null;
   const prompt =
-    `Give exactly ${count} single English nouns for a Pictionary drawing game. ` +
-    `Difficulty: "${difficulty}". Easy=everyday objects/animals. Medium=complex objects/places. Hard=abstract/technical. ` +
-    `Return ONLY a comma-separated list of lowercase words. No numbers or explanations.`;
+    `Generate ${count} random, common, family-friendly drawing game words. ` +
+    `Each word must be one or two words maximum. Each individual word must be under 10 characters. ` +
+    `Difficulty: "${difficulty}". Easy = simple everyday objects/animals. Medium = more specific objects/places. Hard = abstract concepts (but still drawable). ` +
+    `Avoid special characters, proper nouns, and rare vocabulary. ` +
+    `Return as a simple JSON array of lowercase strings.`;
   try {
     const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 128, temperature: 0.95 },
+        generationConfig: { maxOutputTokens: 256, temperature: 0.95 },
       }),
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) { console.warn(`[WordService] Gemini HTTP ${res.status}`); return null; }
     const json  = await res.json();
     const text  = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    const words = text.split(',')
-      .map(w => w.trim().toLowerCase().replace(/[^a-z]/g, ''))
-      .filter(w => w.length >= 2 && w.length <= 24);
-    if (words.length < 3) { console.warn(`[WordService] Gemini too few words (${words.length})`); return null; }
-    console.log(`[WordService] Gemini: ${words.length} "${difficulty}" words`);
-    return words;
+
+    // Parse JSON array from response (may be wrapped in markdown code block)
+    let parsed;
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*?\]/);
+      if (!jsonMatch) throw new Error('No JSON array found');
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      // Fallback: comma-separated parsing
+      parsed = text.split(',').map(w => w.trim().toLowerCase().replace(/[^a-z ]/g, '')).filter(Boolean);
+    }
+
+    // Validate every word against drawing-game rules
+    const valid = parsed
+      .map(w => typeof w === 'string' ? w.toLowerCase().trim() : '')
+      .filter(isValidWord);
+
+    if (valid.length < 3) { console.warn(`[WordService] Gemini too few valid words (${valid.length})`); return null; }
+    console.log(`[WordService] Gemini: ${valid.length} "${difficulty}" words`);
+    return valid;
   } catch (err) { console.warn(`[WordService] Gemini error: ${err.message}`); return null; }
 }
 
 async function getPool(difficulty) {
   const cached = geminiCache.get(difficulty);
   if (cached && Date.now() < cached.expiry) return cached.words;
-  const fresh = await fetchFromGemini(difficulty, 18);
+  const fresh = await fetchFromGemini(difficulty, 12);
   const pool  = fresh ?? [...(WORDS[difficulty] ?? WORDS.medium)];
   geminiCache.set(difficulty, { words: pool, expiry: Date.now() + CACHE_TTL_MS });
   return pool;
@@ -117,6 +148,23 @@ export function maskWord(word) {
 export function isCorrectGuess(guess, target) {
   if (!guess || !target) return false;
   return guess.trim().toLowerCase() === target.toLowerCase();
+}
+
+/**
+ * Builds a partially-revealed hint string.
+ * Revealed positions show the actual letter; others show '_'.
+ * Spaces are always visible (shown as double space for readability).
+ * @param {string} word
+ * @param {number[]} revealedIndices - array of character indices to reveal
+ * @returns {string}
+ */
+export function buildHint(word, revealedIndices) {
+  const revealed = new Set(revealedIndices || []);
+  return word.split('').map((c, i) => {
+    if (c === ' ') return '  ';
+    if (revealed.has(i)) return c;
+    return '_';
+  }).join(' ');
 }
 
 export function getWordCount() { return Object.values(WORDS).flat().length; }

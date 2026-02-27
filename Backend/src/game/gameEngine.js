@@ -41,7 +41,7 @@
  */
 
 import * as roomStore from '../redis/roomStore.js';
-import { getWordOptions, markWordUsed, clearUsedWords, getRandomWord, maskWord, isCorrectGuess } from './wordService.js';
+import { getWordOptions, markWordUsed, clearUsedWords, getRandomWord, maskWord, isCorrectGuess, buildHint } from './wordService.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -56,6 +56,8 @@ const DRAWER_BONUS_POINTS    = 50;
 const TIMER_LOCK_TTL         = 70;   // seconds — must exceed max round duration
 const ROUND_LOCK_TTL         = 15;   // seconds — covers round-start setup phase only
 const WORD_SELECTION_TIMEOUT = 10;   // seconds for drawer to pick a word
+const HINT_INTERVAL_SECS     = 15;   // seconds between progressive hint reveals
+const MAX_HINT_PERCENTAGE    = 0.5;  // reveal up to 50% of letters
 
 /**
  * Unique identity for this server process.
@@ -297,6 +299,7 @@ export async function startRound(roomRef, io) {
     room.currentWord         = null;
     room.roundEndTime        = null;
     room.currentWordOptions  = [];
+    room.revealedIndices     = [];          // Reset hint state for new round
     for (const p of room.players.values()) p.hasGuessedCurrentRound = false;
 
     const drawer = selectDrawerForTurn(room);
@@ -537,6 +540,41 @@ async function startRoundTimer(roomId, io) {
         roundEndTime:  fresh.roundEndTime   // absolute timestamp for client re-sync
       });
 
+      // ── Progressive hint reveal ──────────────────────────────────────────
+      if (fresh.currentWord && remaining > 0) {
+        const elapsed       = fresh.roundDuration - remaining;
+        const expectedHints = Math.floor(elapsed / HINT_INTERVAL_SECS);
+        const revealed      = new Set(fresh.revealedIndices || []);
+        const letterIndices = fresh.currentWord
+          .split('')
+          .map((c, i) => (c !== ' ' ? i : -1))
+          .filter(i => i >= 0);
+        const maxReveals    = Math.floor(letterIndices.length * MAX_HINT_PERCENTAGE);
+
+        if (expectedHints > revealed.size && revealed.size < maxReveals) {
+          // Pick a random unrevealed letter index
+          const unrevealed = letterIndices.filter(i => !revealed.has(i));
+          if (unrevealed.length > 0) {
+            const pick = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+            revealed.add(pick);
+            fresh.revealedIndices = [...revealed];
+            await roomStore.saveRoomMeta(fresh);
+
+            const hint = buildHint(fresh.currentWord, fresh.revealedIndices);
+
+            // Send updated hint only to non-drawer, non-guessed players
+            for (const p of fresh.players.values()) {
+              if (p.userId === fresh.currentDrawerId) continue;
+              if (p.hasGuessedCurrentRound) continue;
+              if (!p.isConnected) continue;
+              const s = io.sockets.sockets.get(p.socketId);
+              if (s) s.emit('hint_update', { hint, revealCount: revealed.size });
+            }
+            console.log(`[GameEngine] Hint revealed letter ${pick} ("${fresh.currentWord[pick]}") in room ${roomId} — ${revealed.size}/${maxReveals}`);
+          }
+        }
+      }
+
       // ── Heartbeat: extend lock TTL while round is still running ──────────
       if (remaining > 5) {
         await roomStore.refreshLock(lockKey, INSTANCE_ID, TIMER_LOCK_TTL);
@@ -584,7 +622,8 @@ export async function endRound(room, io, reason = 'time_up') {
     console.error('[GameEngine] clearCanvas error:', err.message);
   }
 
-  room.gameState = 'round_end';
+  room.gameState       = 'round_end';
+  room.revealedIndices  = [];
 
   if (room.correctGuessers.size > 0 && room.currentDrawerId) {
     const drawer = room.players.get(room.currentDrawerId);
@@ -699,6 +738,7 @@ export async function resetGame(room, io) {
   room.roundNumber     = 0;
   room.roundEndTime    = null;
   room.correctGuessers = new Set();
+  room.revealedIndices = [];
 
   for (const p of room.players.values()) {
     p.score                  = 0;
@@ -742,6 +782,7 @@ export async function stopGame(room, io, reason = 'Game ended') {
   room.roundNumber     = 0;
   room.roundEndTime    = null;
   room.correctGuessers = new Set();
+  room.revealedIndices = [];
 
   await roomStore.saveRoomMeta(room);
   console.log(`[GameEngine] Game stopped — room: ${room.roomId} | reason: ${reason}`);

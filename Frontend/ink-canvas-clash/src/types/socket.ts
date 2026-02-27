@@ -165,6 +165,8 @@ export interface ServerToClientEvents {
   // ── Word ──────────────────────────────────────────────────────────────────
   word_reveal:  (p: { word: string; roundNumber: number }) => void;
   word_hint:    (p: { hint: string; wordLength: number; roundNumber: number }) => void;
+  /** Progressive hint — reveals additional letters over time */
+  hint_update:  (p: { hint: string; revealCount: number }) => void;
   /** Sent only to the drawer — 3 word choices to pick from */
   word_options: (p: { words: string[]; timeoutSeconds: number; roundNumber: number; turnNumber: number }) => void;
   /** Sent to non-drawers while drawer is choosing */

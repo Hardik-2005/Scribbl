@@ -180,6 +180,10 @@ export function useGameSocket() {
       store.setWordHint(p.hint);       // guessers receive the masked hint
     };
 
+    const onHintUpdate = (p: { hint: string; revealCount: number }) => {
+      store.setWordHint(p.hint);       // progressive hint reveal
+    };
+
     // ── Timer ────────────────────────────────────────────────────────────────
     const onTimerUpdate = (p: { remainingTime: number }) => {
       store.setTimeLeft(p.remainingTime);
@@ -242,6 +246,7 @@ export function useGameSocket() {
 
     on("word_reveal",         onWordReveal);
     on("word_hint",           onWordHint);
+    on("hint_update",         onHintUpdate);
 
     on("round_timer_update",  onTimerUpdate);
 
@@ -281,6 +286,7 @@ export function useGameSocket() {
 
       off("word_reveal",         onWordReveal);
       off("word_hint",           onWordHint);
+      off("hint_update",         onHintUpdate);
 
       off("round_timer_update",  onTimerUpdate);
 

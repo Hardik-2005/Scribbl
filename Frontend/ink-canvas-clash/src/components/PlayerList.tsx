@@ -8,10 +8,10 @@ export const PlayerList = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/[0.06] shrink-0">
+      <div className="px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">Players</h3>
-          <span className="text-xs font-mono text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+          <h3 className="text-base font-semibold text-foreground">Players</h3>
+          <span className="text-xs font-mono text-muted-foreground bg-secondary px-2.5 py-1 rounded-full">
             {players.length}
           </span>
         </div>
@@ -20,11 +20,11 @@ export const PlayerList = () => {
       {/* List */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {sorted.length === 0 ? (
-          <p className="text-center text-xs text-muted-foreground pt-8 px-4">
+          <p className="text-center text-sm text-muted-foreground pt-8 px-4">
             No players yet
           </p>
         ) : (
-          <div className="p-2 space-y-1">
+          <div className="p-3 space-y-1.5">
             {sorted.map((player, index) => {
               const isDrawing = player.id === currentDrawer;
               const isLocal   = player.id === localPlayerId;
@@ -33,12 +33,12 @@ export const PlayerList = () => {
               return (
                 <div
                   key={player.id}
-                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-all ${
+                  className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-base transition-all ${
                     isDrawing
-                      ? "bg-primary/15 border border-primary/30 shadow-[0_0_10px_rgba(139,92,246,0.15)]"
+                      ? "bg-primary/15 border border-primary/30"
                       : isLocal
-                      ? "bg-accent/10 border border-accent/20"
-                      : "bg-white/[0.03] border border-transparent hover:bg-white/[0.05]"
+                      ? "bg-accent border border-border"
+                      : "bg-secondary/50 border border-transparent hover:bg-secondary"
                   }`}
                 >
                   {/* Rank */}
@@ -53,26 +53,26 @@ export const PlayerList = () => {
                     ) : isDrawing ? (
                       <Pencil className="w-3.5 h-3.5 text-primary" />
                     ) : (
-                      <div className="w-2 h-2 rounded-full bg-white/20" />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40" />
                     )}
                   </span>
 
                   {/* Name */}
                   <span
-                    className={`font-medium truncate flex-1 text-sm ${
+                    className={`font-medium truncate flex-1 text-base ${
                       isLocal ? "text-accent" : "text-foreground"
                     }`}
                   >
                     {player.username}
                     {isLocal && (
-                      <span className="text-muted-foreground font-normal text-xs ml-1">
+                      <span className="text-muted-foreground font-normal text-sm ml-1">
                         (you)
                       </span>
                     )}
                   </span>
 
                   {/* Score */}
-                  <span className="font-mono text-xs text-muted-foreground shrink-0 tabular-nums">
+                  <span className="font-mono text-sm text-muted-foreground shrink-0 tabular-nums">
                     {player.score}
                   </span>
                 </div>

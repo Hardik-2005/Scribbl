@@ -107,6 +107,8 @@ function hydrateRoom(meta, playerFields) {
     wordSelectionEndTime: meta.wordSelectionEndTime && meta.wordSelectionEndTime !== '0'
                             ? parseInt(meta.wordSelectionEndTime) : null,
     currentWordOptions:   meta.currentWordOptions ? JSON.parse(meta.currentWordOptions) : [],
+    // ── Hint system ──────────────────────────────────────────────
+    revealedIndices:      meta.revealedIndices ? JSON.parse(meta.revealedIndices) : [],
     // ── Host ─────────────────────────────────────────────────────
     hostId:               meta.hostId || "",
     players:              new Map(),
@@ -203,6 +205,7 @@ export async function saveRoomMeta(room) {
     difficulty:           room.difficulty    || 'medium',
     wordSelectionEndTime: room.wordSelectionEndTime ? String(room.wordSelectionEndTime) : '0',
     currentWordOptions:   JSON.stringify(room.currentWordOptions ?? []),
+    revealedIndices:      JSON.stringify(room.revealedIndices ?? []),
   });
 }
 

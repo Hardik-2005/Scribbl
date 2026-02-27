@@ -32,7 +32,7 @@ export const CountdownTimer = () => {
           cy="28"
           r={radius}
           fill="none"
-          stroke="hsl(var(--border))"
+          stroke="var(--border)"
           strokeWidth="3"
         />
         <circle
@@ -40,7 +40,7 @@ export const CountdownTimer = () => {
           cy="28"
           r={radius}
           fill="none"
-          stroke={isWarning && displayTime > 0 ? "hsl(var(--destructive))" : "hsl(var(--primary))"}
+          stroke={isWarning && displayTime > 0 ? "var(--destructive)" : "var(--primary)"}
           strokeWidth="3"
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -48,8 +48,8 @@ export const CountdownTimer = () => {
           className="transition-all duration-1000 ease-linear"
           style={{
             filter: isWarning && displayTime > 0
-              ? "drop-shadow(0 0 6px hsl(0 72% 55% / 0.6))"
-              : "drop-shadow(0 0 6px hsl(185 80% 55% / 0.4))",
+              ? "drop-shadow(0 0 4px oklch(0.704 0.191 22.216 / 0.5))"
+              : "drop-shadow(0 0 4px oklch(0.488 0.243 264.376 / 0.4))",
           }}
         />
       </svg>

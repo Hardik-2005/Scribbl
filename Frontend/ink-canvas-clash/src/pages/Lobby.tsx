@@ -11,25 +11,22 @@ const CanvasIllustration = () => (
     transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
     className="w-full max-w-[340px] mx-auto select-none pointer-events-none"
   >
-    <svg viewBox="0 0 340 240" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full drop-shadow-2xl">
+    <svg viewBox="0 0 340 240" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full">
       {/* Canvas frame */}
-      <rect x="20" y="20" width="300" height="200" rx="16" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
+      <rect x="20" y="20" width="300" height="200" rx="12" fill="oklch(0.185 0.02 260)" stroke="oklch(0.28 0.015 260)" strokeWidth="1.5" />
       {/* Toolbar accent */}
-      <rect x="20" y="20" width="300" height="36" rx="16" fill="rgba(139,92,246,0.15)" />
-      <rect x="20" y="44" width="300" height="12" fill="rgba(139,92,246,0.08)" />
+      <rect x="20" y="20" width="300" height="36" rx="12" fill="oklch(0.22 0.018 260)" />
       {/* Tool dots */}
-      <circle cx="44" cy="38" r="7" fill="rgba(139,92,246,0.5)" />
-      <circle cx="66" cy="38" r="7" fill="rgba(99,102,241,0.4)" />
-      <circle cx="88" cy="38" r="7" fill="rgba(6,182,212,0.35)" />
+      <circle cx="44" cy="38" r="6" fill="oklch(0.54 0.25 264 / 0.6)" />
+      <circle cx="64" cy="38" r="6" fill="oklch(0.54 0.25 264 / 0.4)" />
+      <circle cx="84" cy="38" r="6" fill="oklch(0.54 0.25 264 / 0.25)" />
       {/* Brush strokes */}
-      <path d="M 60 100 Q 110 70 160 110 Q 210 150 270 90" stroke="rgba(167,139,250,0.7)" strokeWidth="4" strokeLinecap="round" fill="none" />
-      <path d="M 50 150 Q 120 130 180 155 Q 230 175 280 140" stroke="rgba(6,182,212,0.55)" strokeWidth="3" strokeLinecap="round" fill="none" />
+      <path d="M 60 100 Q 110 70 160 110 Q 210 150 270 90" stroke="oklch(0.54 0.25 264 / 0.6)" strokeWidth="4" strokeLinecap="round" fill="none" />
+      <path d="M 50 150 Q 120 130 180 155 Q 230 175 280 140" stroke="oklch(0.62 0.19 260 / 0.5)" strokeWidth="3" strokeLinecap="round" fill="none" />
       {/* Guess bubbles */}
-      <rect x="28" y="172" width="90" height="22" rx="11" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-      <rect x="126" y="172" width="70" height="22" rx="11" fill="rgba(139,92,246,0.2)" stroke="rgba(139,92,246,0.3)" strokeWidth="1" />
-      <rect x="204" y="172" width="108" height="22" rx="11" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-      {/* Glow on stroke */}
-      <path d="M 60 100 Q 110 70 160 110 Q 210 150 270 90" stroke="rgba(167,139,250,0.15)" strokeWidth="14" strokeLinecap="round" fill="none" />
+      <rect x="28" y="172" width="90" height="22" rx="11" fill="oklch(0.22 0.018 260)" stroke="oklch(0.28 0.015 260)" strokeWidth="1" />
+      <rect x="126" y="172" width="70" height="22" rx="11" fill="oklch(0.54 0.25 264 / 0.15)" stroke="oklch(0.54 0.25 264 / 0.3)" strokeWidth="1" />
+      <rect x="204" y="172" width="108" height="22" rx="11" fill="oklch(0.22 0.018 260)" stroke="oklch(0.28 0.015 260)" strokeWidth="1" />
     </svg>
   </motion.div>
 );
@@ -46,9 +43,9 @@ const Feature = ({ icon, text, delay }: FeatureProps) => (
     initial={{ opacity: 0, x: -20 }}
     animate={{ opacity: 1, x: 0 }}
     transition={{ duration: 0.5, delay }}
-    className="flex items-center gap-3 text-white/50 text-sm"
+    className="flex items-center gap-3 text-muted-foreground text-base"
   >
-    <span className="text-purple-400/80">{icon}</span>
+    <span className="text-primary">{icon}</span>
     {text}
   </motion.div>
 );
@@ -86,7 +83,7 @@ const Lobby = () => {
 
       {/* Left section */}
       <div className="relative z-10 hidden lg:flex flex-col justify-center items-start
-                      w-1/2 xl:w-[55%] px-16 xl:px-24 gap-10">
+                      w-1/2 xl:w-[55%] px-16 xl:px-24 gap-12">
 
         {/* Logo */}
         <motion.div
@@ -99,8 +96,7 @@ const Lobby = () => {
             <h1 className="text-7xl xl:text-8xl font-black tracking-tighter text-white leading-none">
               Ink
             </h1>
-            <h1 className="text-7xl xl:text-8xl font-black tracking-tighter leading-none
-                           bg-gradient-to-r from-purple-400 via-violet-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="text-7xl xl:text-8xl font-black tracking-tighter leading-none text-primary">
               Arena
             </h1>
           </div>
@@ -109,7 +105,7 @@ const Lobby = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 0.5 }}
-            className="text-xl text-white/40 font-medium tracking-[0.15em] uppercase"
+            className="text-xl text-muted-foreground font-medium tracking-[0.15em] uppercase"
           >
             Draw  Guess  Dominate
           </motion.p>
@@ -126,7 +122,7 @@ const Lobby = () => {
         </motion.div>
 
         {/* Feature bullets */}
-        <div className="space-y-4">
+        <div className="space-y-5">
           <Feature
             delay={0.55}
             text="Real-time multiplayer drawing"
@@ -168,10 +164,10 @@ const Lobby = () => {
           transition={{ duration: 0.5 }}
           className="mb-8 text-center lg:hidden"
         >
-          <h1 className="text-5xl font-black tracking-tighter text-white">
-            Ink<span className="bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">Arena</span>
+          <h1 className="text-6xl font-black tracking-tighter text-white">
+            Ink<span className="text-primary">Arena</span>
           </h1>
-          <p className="text-sm text-white/40 mt-1 tracking-widest uppercase">Draw  Guess  Dominate</p>
+          <p className="text-base text-muted-foreground mt-2 tracking-widest uppercase">Draw  Guess  Dominate</p>
         </motion.div>
 
         <LobbyPanel connected={connected} connecting={connecting} />

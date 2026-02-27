@@ -78,7 +78,7 @@ export const DrawingCanvas = () => {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.fillStyle = "#1a1a2e";
+    ctx.fillStyle = "#1c1c1c";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, []);
 
@@ -90,7 +90,7 @@ export const DrawingCanvas = () => {
     canvas.height = 600;
     const ctx = canvas.getContext("2d");
     if (ctx) {
-      ctx.fillStyle = "#1a1a2e";
+      ctx.fillStyle = "#1c1c1c";
       ctx.fillRect(0, 0, 800, 600);
     }
   }, []);

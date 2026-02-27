@@ -81,7 +81,7 @@ export function WordSelectionModal() {
       {visible && (
         <motion.div
           key="word-selection-backdrop"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -89,7 +89,7 @@ export function WordSelectionModal() {
         >
           <motion.div
             key="word-selection-panel"
-            className="w-full max-w-md bg-card border border-white/10 rounded-2xl shadow-2xl p-6 flex flex-col gap-5"
+            className="w-full max-w-md bg-card border border-border rounded-2xl shadow-[0_4px_24px_oklch(0_0_0/0.6)] p-8 flex flex-col gap-6"
             initial={{ scale: 0.92, opacity: 0, y: 24 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 24 }}
@@ -99,7 +99,7 @@ export function WordSelectionModal() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Pencil className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-bold text-foreground">Choose a word to draw</h2>
+                <h2 className="text-xl font-bold text-foreground">Choose a word to draw</h2>
               </div>
               {/* Countdown ring */}
               <div className="relative w-10 h-10 flex items-center justify-center">
@@ -114,7 +114,7 @@ export function WordSelectionModal() {
                   <circle
                     cx="18" cy="18" r="15"
                     fill="none"
-                    stroke="hsl(var(--primary))"
+                    stroke="var(--primary)"
                     strokeWidth="3"
                     strokeDasharray={`${(timeLeft / 10) * 94.25} 94.25`}
                     strokeLinecap="round"
@@ -127,8 +127,8 @@ export function WordSelectionModal() {
               </div>
             </div>
 
-            <p className="text-sm text-muted-foreground -mt-2">
-              Pick quickly — if you don't choose, one will be selected for you.
+            <p className="text-base text-muted-foreground -mt-2">
+              Pick quickly \u2014 if you don\u2019t choose, one will be selected for you.
             </p>
 
             {/* Word cards */}
@@ -139,7 +139,7 @@ export function WordSelectionModal() {
                   onClick={() => handlePick(word)}
                   disabled={!!chosen}
                   className={`
-                    w-full py-4 px-5 rounded-xl border text-left text-lg font-semibold
+                    w-full py-5 px-6 rounded-xl border text-left text-lg font-semibold
                     transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary
                     ${chosen === word
                       ? "bg-primary/20 border-primary text-primary"
