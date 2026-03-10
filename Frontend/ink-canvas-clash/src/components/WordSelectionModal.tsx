@@ -89,7 +89,7 @@ export function WordSelectionModal() {
         >
           <motion.div
             key="word-selection-panel"
-            className="w-full max-w-md bg-card border border-border rounded-2xl shadow-[0_4px_24px_oklch(0_0_0/0.6)] p-8 flex flex-col gap-6"
+            className="w-full max-w-md bg-card border border-border rounded-2xl shadow-[0_4px_24px_oklch(0_0_0/0.6)] p-5 sm:p-8 flex flex-col gap-4 sm:gap-6 mx-2"
             initial={{ scale: 0.92, opacity: 0, y: 24 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 24 }}
@@ -99,7 +99,7 @@ export function WordSelectionModal() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Pencil className="w-5 h-5 text-primary" />
-                <h2 className="text-xl font-bold text-foreground">Choose a word to draw</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-foreground">Choose a word</h2>
               </div>
               {/* Countdown ring */}
               <div className="relative w-10 h-10 flex items-center justify-center">
@@ -127,19 +127,19 @@ export function WordSelectionModal() {
               </div>
             </div>
 
-            <p className="text-base text-muted-foreground -mt-2">
+            <p className="text-sm sm:text-base text-muted-foreground -mt-2">
               Pick quickly \u2014 if you don\u2019t choose, one will be selected for you.
             </p>
 
             {/* Word cards */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 sm:gap-3">
               {wordOptions.map((word) => (
                 <motion.button
                   key={word}
                   onClick={() => handlePick(word)}
                   disabled={!!chosen}
                   className={`
-                    w-full py-5 px-6 rounded-xl border text-left text-lg font-semibold
+                    w-full py-4 sm:py-5 px-4 sm:px-6 rounded-xl border text-left text-base sm:text-lg font-semibold
                     transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary
                     ${chosen === word
                       ? "bg-primary/20 border-primary text-primary"

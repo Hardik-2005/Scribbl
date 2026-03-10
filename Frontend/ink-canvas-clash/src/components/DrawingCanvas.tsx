@@ -24,10 +24,11 @@ export const DrawingCanvas = () => {
   const strokeBatchRef = useRef<Stroke[]>([]);
   const rafRef         = useRef<number | null>(null);
 
-  const { brushSize, brushColor, setBrushSize, setBrushColor, localPlayerId, currentDrawer, roomId } =
+  const { brushSize, brushColor, setBrushSize, setBrushColor, localPlayerId, currentDrawer, roomId, players } =
     useGameStore();
 
   const isDrawer = localPlayerId === currentDrawer;
+  const drawerName = players.find((p) => p.id === currentDrawer)?.username;
 
   //  Canvas helpers 
   const getCanvasPoint = useCallback(
@@ -204,12 +205,12 @@ export const DrawingCanvas = () => {
   }, [clearCanvas, roomId]);
 
   return (
-    <div className="flex flex-col h-full gap-2" ref={containerRef}>
+    <div className="flex flex-col h-full gap-1 sm:gap-2" ref={containerRef}>
       {/* Canvas */}
       <div className="flex-1 relative rounded-lg overflow-hidden border border-border">
         <canvas
           ref={canvasRef}
-          className={`w-full h-full ${isDrawer ? "cursor-crosshair" : "cursor-not-allowed"}`}
+          className={`w-full h-full ${isDrawer ? "cursor-crosshair" : "cursor-default"}`}
           style={{ touchAction: "none" }}
           onMouseDown={handleStart}
           onMouseMove={handleMove}
@@ -219,23 +220,26 @@ export const DrawingCanvas = () => {
           onTouchMove={handleMove}
           onTouchEnd={handleEnd}
         />
+        {/* Spectator overlay */}
         {!isDrawer && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-muted-foreground/30 text-lg font-display">Watching...</span>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-none">
+            <span className="text-[11px] sm:text-xs text-muted-foreground/50 bg-background/60 backdrop-blur-sm px-3 py-1 rounded-full">
+              {drawerName ? `Watching ${drawerName} draw…` : "Waiting…"}
+            </span>
           </div>
         )}
       </div>
 
       {/* Tools (drawer only) */}
       {isDrawer && (
-        <div className="flex items-center gap-3 px-2 py-1.5 game-card animate-float-in">
-          {/* Colors */}
-          <div className="flex flex-wrap gap-1">
+        <div className="flex items-center gap-1.5 sm:gap-3 px-1.5 sm:px-2 py-1 sm:py-1.5 game-card animate-float-in overflow-x-auto scrollbar-thin">
+          {/* Colors — grid on mobile, row on desktop */}
+          <div className="flex flex-wrap gap-[3px] sm:gap-1 max-w-[140px] sm:max-w-none">
             {COLORS.map((color) => (
               <button
                 key={color}
                 onClick={() => setBrushColor(color)}
-                className={`w-6 h-6 rounded-md transition-all duration-150 hover:scale-110 ${
+                className={`w-[18px] h-[18px] sm:w-6 sm:h-6 rounded-[4px] sm:rounded-md transition-all duration-150 active:scale-110 ${
                   brushColor === color ? "ring-2 ring-primary scale-110" : "ring-1 ring-border"
                 }`}
                 style={{ backgroundColor: color }}
@@ -244,33 +248,33 @@ export const DrawingCanvas = () => {
           </div>
 
           {/* Divider */}
-          <div className="w-px h-8 bg-border" />
+          <div className="w-px h-5 sm:h-8 bg-border shrink-0" />
 
           {/* Brush sizes */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-0.5 sm:gap-1.5">
             {BRUSH_SIZES.map((size) => (
               <button
                 key={size}
                 onClick={() => setBrushSize(size)}
-                className={`flex items-center justify-center w-8 h-8 rounded-md transition-all ${
-                  brushSize === size ? "bg-primary/20 ring-1 ring-primary" : "hover:bg-secondary"
+                className={`flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 rounded-md transition-all ${
+                  brushSize === size ? "bg-primary/20 ring-1 ring-primary" : "active:bg-secondary"
                 }`}
               >
                 <div
                   className="rounded-full bg-foreground"
-                  style={{ width: Math.min(size, 20), height: Math.min(size, 20) }}
+                  style={{ width: Math.min(size, 16), height: Math.min(size, 16) }}
                 />
               </button>
             ))}
           </div>
 
           {/* Divider */}
-          <div className="w-px h-8 bg-border" />
+          <div className="w-px h-5 sm:h-8 bg-border shrink-0" />
 
-          {/* Clear (local only — actual clear comes from server on round end) */}
+          {/* Clear */}
           <button
             onClick={handleClear}
-            className="px-3 py-1.5 text-sm rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors font-medium"
+            className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30 active:scale-95 transition-all font-medium shrink-0"
           >
             Clear
           </button>

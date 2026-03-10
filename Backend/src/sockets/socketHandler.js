@@ -2,6 +2,21 @@
 import { generateUserId } from '../utils/idGenerator.js';
 import { startGame, handleGuess, handleDrawerDisconnect, checkPlayerCount, resetGame, handleWordSelection } from '../game/gameEngine.js';
 
+// ── Rate limiting for guess submissions ──────────────────────────────────────
+/** @type {Map<string, number[]>} socketId → array of timestamps */
+const guessRateMap  = new Map();
+const RATE_WINDOW   = 5000;  // 5 seconds
+const RATE_MAX      = 10;    // max 10 guesses per window
+
+function isRateLimited(socketId) {
+  const now = Date.now();
+  const timestamps = guessRateMap.get(socketId) || [];
+  const recent = timestamps.filter(t => now - t < RATE_WINDOW);
+  recent.push(now);
+  guessRateMap.set(socketId, recent);
+  return recent.length > RATE_MAX;
+}
+
 /**
  * Socket event handler â€” all callbacks are async to support Redis-backed roomManager.
  */
@@ -345,6 +360,14 @@ export function handleSocketConnection(io, socket) {
         return;
       }
 
+      // Rate limiting
+      if (isRateLimited(socket.id)) {
+        const error = { success: false, error: 'Too many guesses — slow down!' };
+        socket.emit('game_error', error);
+        if (callback) callback(error);
+        return;
+      }
+
       const room = await roomManager.getRoom(roomId);
       if (!room) {
         const error = { success: false, error: 'Room does not exist' };
@@ -590,6 +613,7 @@ export function handleSocketConnection(io, socket) {
   // ============================================
   socket.on('disconnect', async (reason) => {
     console.log(`[Socket] Client disconnected: ${socket.id}, reason: ${reason}`);
+    guessRateMap.delete(socket.id); // cleanup rate limiter
     try {
       const disconnectInfo = await roomManager.removePlayerOnDisconnect(socket.id);
 

@@ -10,7 +10,7 @@ export const PlayerList = () => {
       {/* Header */}
       <div className="px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-foreground">Players</h3>
+          <h3 className="text-sm sm:text-base font-semibold text-foreground">Players</h3>
           <span className="text-xs font-mono text-muted-foreground bg-secondary px-2.5 py-1 rounded-full">
             {players.length}
           </span>
@@ -24,7 +24,7 @@ export const PlayerList = () => {
             No players yet
           </p>
         ) : (
-          <div className="p-3 space-y-1.5">
+          <div className="p-2 sm:p-3 space-y-1 sm:space-y-1.5">
             {sorted.map((player, index) => {
               const isDrawing = player.id === currentDrawer;
               const isLocal   = player.id === localPlayerId;
@@ -33,7 +33,7 @@ export const PlayerList = () => {
               return (
                 <div
                   key={player.id}
-                  className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-base transition-all ${
+                  className={`flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 sm:py-3 rounded-xl text-sm sm:text-base transition-all ${
                     isDrawing
                       ? "bg-primary/15 border border-primary/30"
                       : isLocal
@@ -59,20 +59,20 @@ export const PlayerList = () => {
 
                   {/* Name */}
                   <span
-                    className={`font-medium truncate flex-1 text-base ${
+                    className={`font-medium truncate flex-1 text-sm sm:text-base ${
                       isLocal ? "text-accent" : "text-foreground"
                     }`}
                   >
                     {player.username}
                     {isLocal && (
-                      <span className="text-muted-foreground font-normal text-sm ml-1">
+                      <span className="text-muted-foreground font-normal text-xs sm:text-sm ml-1">
                         (you)
                       </span>
                     )}
                   </span>
 
                   {/* Score */}
-                  <span className="font-mono text-sm text-muted-foreground shrink-0 tabular-nums">
+                  <span className="font-mono text-xs sm:text-sm text-muted-foreground shrink-0 tabular-nums">
                     {player.score}
                   </span>
                 </div>

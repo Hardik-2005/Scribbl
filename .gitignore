@@ -58,3 +58,7 @@ out/
 # Temporary files
 tmp/
 temp/
+
+# Java compiled files
+*.class
+Linked_List.java
