@@ -1,6 +1,8 @@
 ﻿import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { QRCodeCanvas } from "qrcode.react";
+import { toast } from "sonner";
 import { socket } from "@/services/socket";
 import { useGameStore } from "@/store/gameStore";
 import ConnectionBadge from "./ConnectionBadge";
@@ -113,6 +115,163 @@ const Spinner = () => (
   </motion.svg>
 );
 
+// ── Invite Panel ────────────────────────────────────────────────────────────
+interface InvitePanelProps {
+  roomId: string;
+  onEnterGame: () => void;
+  onBack: () => void;
+}
+
+const InvitePanel = ({ roomId, onEnterGame, onBack }: InvitePanelProps) => {
+  const inviteLink = `${window.location.origin}/join/${roomId}`;
+  const [copied, setCopied] = useState(false);
+  const canShare = typeof navigator !== "undefined" && "share" in navigator;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      toast.success("Invite link copied!");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Could not copy — please copy manually.");
+    }
+  };
+
+  const handleShare = async () => {
+    if (canShare) {
+      try {
+        await navigator.share({
+          title: "Join my InkArena game!",
+          text: `Come draw and guess with me on InkArena! Room: ${roomId}`,
+          url: inviteLink,
+        });
+      } catch {
+        // User cancelled — that's fine
+      }
+    } else {
+      handleCopy();
+    }
+  };
+
+  return (
+    <motion.div
+      key="invite"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -16 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-5"
+    >
+      {/* Status badge */}
+      <div className="flex flex-col items-center text-center gap-2">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/25">
+          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-success">Room Created!</span>
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Invite Friends</h2>
+        <p className="text-sm text-muted-foreground">Share this link so friends can join instantly</p>
+      </div>
+
+      {/* Room ID */}
+      <div className="flex items-center justify-center gap-3 px-4 py-3 rounded-xl bg-secondary border border-border">
+        <span className="text-[11px] text-muted-foreground uppercase tracking-widest font-semibold">Room</span>
+        <span className="font-mono font-bold text-xl text-primary tracking-widest">{roomId}</span>
+      </div>
+
+      {/* Invite link row */}
+      <div className="space-y-1.5">
+        <span className="block text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+          Invite Link
+        </span>
+        <div className="flex gap-2">
+          <div className="flex-1 min-w-0 flex items-center px-3 py-2.5 rounded-xl bg-secondary border border-border">
+            <span className="text-xs font-mono text-muted-foreground truncate">{inviteLink}</span>
+          </div>
+          <button
+            onClick={handleCopy}
+            className={`shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-xl font-semibold text-sm transition-all border ${
+              copied
+                ? "bg-success/10 border-success/30 text-success"
+                : "bg-secondary border-border text-foreground hover:bg-accent"
+            }`}
+          >
+            {copied ? (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Copied
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                Copy
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* QR Code + Share */}
+      <div className="flex items-start gap-4 p-4 rounded-xl bg-secondary/50 border border-border">
+        {/* QR Code — needs white bg for scannability */}
+        <div className="flex flex-col items-center gap-1.5 shrink-0">
+          <div className="p-2 rounded-xl bg-white">
+            <QRCodeCanvas
+              value={inviteLink}
+              size={96}
+              bgColor="#ffffff"
+              fgColor="#0f172a"
+              level="M"
+            />
+          </div>
+          <span className="text-[10px] text-muted-foreground">Scan to join</span>
+        </div>
+
+        {/* Share button + platforms */}
+        <div className="flex flex-col gap-3 flex-1">
+          <button
+            onClick={handleShare}
+            className="flex items-center justify-center gap-2 w-full h-10 rounded-xl font-semibold text-sm border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all active:scale-95"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
+            {canShare ? "Share Room" : "Copy Link"}
+          </button>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Works on WhatsApp, Telegram, Discord, or any messaging app.
+          </p>
+        </div>
+      </div>
+
+      {/* Enter Game */}
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={onEnterGame}
+        className="flex items-center justify-center gap-2.5 w-full h-12 rounded-xl font-semibold text-base tracking-wide bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Enter Game
+      </motion.button>
+
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        ← Back to lobby
+      </button>
+    </motion.div>
+  );
+};
+
 // LobbyPanel
 interface LobbyPanelProps {
   connected: boolean;
@@ -127,6 +286,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
   const [roomId,   setRoomId]   = useState(() => localStorage.getItem(LS_ROOM_ID)  ?? "");
   const [loading,  setLoading]  = useState<"create" | "join" | "quick" | null>(null);
   const [error,    setError]    = useState<string | null>(null);
+  const [createdRoom, setCreatedRoom] = useState<string | null>(null);
 
   const status = connecting ? "connecting" : connected ? "connected" : "disconnected";
 
@@ -142,9 +302,9 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
     return true;
   };
 
-  // Join existing room
+  // Join existing room — optional onSuccess overrides the default navigate("/game")
   const doJoin = useCallback(
-    (rid: string, un: string) => {
+    (rid: string, un: string, onSuccess?: () => void) => {
       socket.emit("join_room", { roomId: rid, username: un }, (res: RoomJoinedResponse | ErrorResponse) => {
         setLoading(null);
         if (!res.success) { setError((res as ErrorResponse).error); return; }
@@ -152,7 +312,8 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
         storeSetRoomId(ok.roomId);
         setLocalPlayer(ok.userId, ok.username);
         persist(ok.username, ok.roomId);
-        navigate("/game");
+        if (onSuccess) onSuccess();
+        else navigate("/game");
       });
     },
     [navigate, setLocalPlayer, storeSetRoomId]
@@ -173,15 +334,13 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
         if (!res.success) { setError((res as ErrorResponse).error); return; }
         const ok = res as RoomCreatedResponse;
         storeSetRoomId(ok.roomId);
-        // If backend auto-joined (userId present), use it; otherwise do a manual join
         if (ok.userId) {
           setLocalPlayer(ok.userId, username.trim());
           persist(username.trim(), ok.roomId);
-          navigate("/game");
+          setCreatedRoom(ok.roomId); // show invite panel
         } else {
-          // Manually join after room creation
           setLoading("create");
-          doJoin(ok.roomId, username.trim());
+          doJoin(ok.roomId, username.trim(), () => setCreatedRoom(ok.roomId));
         }
       }
     );
@@ -211,10 +370,10 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
         if (ok.userId) {
           setLocalPlayer(ok.userId, username.trim());
           persist(username.trim(), ok.roomId);
-          navigate("/game");
+          setCreatedRoom(ok.roomId);
         } else {
           setLoading("quick");
-          doJoin(ok.roomId, username.trim());
+          doJoin(ok.roomId, username.trim(), () => setCreatedRoom(ok.roomId));
         }
       }
     );
@@ -229,8 +388,25 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
                  border border-border
                  bg-card
                  shadow-[0_4px_24px_oklch(0_0_0/0.6)]
-                 p-8 lg:p-10 space-y-8"
+                 p-8 lg:p-10"
     >
+      <AnimatePresence mode="wait">
+        {createdRoom ? (
+          <InvitePanel
+            key="invite"
+            roomId={createdRoom}
+            onEnterGame={() => navigate("/game")}
+            onBack={() => { setCreatedRoom(null); setError(null); }}
+          />
+        ) : (
+          <motion.div
+            key="form"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-8"
+          >
       {/* Header */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -358,6 +534,9 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
       <p className="text-center text-muted-foreground text-xs">
         Share your Room ID with friends to play together.
       </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

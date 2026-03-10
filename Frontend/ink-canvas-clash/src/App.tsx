@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Lobby from "./pages/Lobby";
 import Index from "./pages/Index";
+import JoinRoom from "./pages/JoinRoom";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,8 @@ const App = () => (
           <Route path="/" element={<Navigate to="/lobby" replace />} />
           {/* Lobby / connection screen */}
           <Route path="/lobby" element={<Lobby />} />
+          {/* Invite link — auto-join a specific room */}
+          <Route path="/join/:roomId" element={<JoinRoom />} />
           {/* Game / drawing screen */}
           <Route path="/game" element={<Index />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
