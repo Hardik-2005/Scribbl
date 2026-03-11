@@ -7,6 +7,7 @@ import Lobby from "./pages/Lobby";
 import Index from "./pages/Index";
 import JoinRoom from "./pages/JoinRoom";
 import NotFound from "./pages/NotFound";
+import LoginPage from "./components/auth/LoginPage";
 
 const queryClient = new QueryClient();
 
@@ -17,8 +18,10 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          {/* Redirect root to lobby */}
-          <Route path="/" element={<Navigate to="/lobby" replace />} />
+          {/* Redirect root to login */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          {/* Login / welcome screen */}
+          <Route path="/login" element={<LoginPage />} />
           {/* Lobby / connection screen */}
           <Route path="/lobby" element={<Lobby />} />
           {/* Invite link — auto-join a specific room */}
