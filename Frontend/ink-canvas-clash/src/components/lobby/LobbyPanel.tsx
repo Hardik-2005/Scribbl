@@ -5,6 +5,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "sonner";
 import { socket } from "@/services/socket";
 import { useGameStore } from "@/store/gameStore";
+import { getStoredUser } from "@/services/auth";
 import ConnectionBadge from "./ConnectionBadge";
 import type { RoomCreatedResponse, RoomJoinedResponse, ErrorResponse } from "@/types/socket";
 
@@ -282,7 +283,9 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
   const navigate = useNavigate();
   const { setLocalPlayer, setRoomId: storeSetRoomId } = useGameStore();
 
-  const [username, setUsername] = useState(() => localStorage.getItem(LS_USERNAME) ?? "");
+  const [username, setUsername] = useState(
+    () => localStorage.getItem(LS_USERNAME) ?? getStoredUser()?.username ?? ""
+  );
   const [roomId,   setRoomId]   = useState(() => localStorage.getItem(LS_ROOM_ID)  ?? "");
   const [loading,  setLoading]  = useState<"create" | "join" | "quick" | null>(null);
   const [error,    setError]    = useState<string | null>(null);

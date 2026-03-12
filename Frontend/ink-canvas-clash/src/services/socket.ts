@@ -1,5 +1,6 @@
 ﻿import { io, Socket } from "socket.io-client";
 import type { ClientToServerEvents, ServerToClientEvents } from "@/types/socket";
+import { getToken } from "./auth";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000";
 
@@ -13,6 +14,10 @@ export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
+    auth: (cb) => {
+      // Called fresh on every connect/reconnect so a newly saved token is always used
+      cb({ token: getToken() });
+    },
   }
 );
 

@@ -4,9 +4,11 @@ import { User } from "lucide-react";
 
 interface GuestLoginProps {
   onGuestLogin: (username: string) => void;
+  loading?: boolean;
+  error?: string | null;
 }
 
-const GuestLogin = ({ onGuestLogin }: GuestLoginProps) => {
+const GuestLogin = ({ onGuestLogin, loading = false, error }: GuestLoginProps) => {
   const [username, setUsername] = useState("");
 
   const isValid = username.trim().length >= 2;
@@ -14,7 +16,7 @@ const GuestLogin = ({ onGuestLogin }: GuestLoginProps) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = username.trim();
-    if (!trimmed || trimmed.length < 2) return;
+    if (!trimmed || trimmed.length < 2 || loading) return;
     onGuestLogin(trimmed);
   };
 
@@ -33,6 +35,7 @@ const GuestLogin = ({ onGuestLogin }: GuestLoginProps) => {
           maxLength={20}
           autoComplete="off"
           spellCheck={false}
+          disabled={loading}
           aria-label="Username"
           className="
             w-full rounded-xl px-4 py-3.5 pl-10 text-base
@@ -41,23 +44,29 @@ const GuestLogin = ({ onGuestLogin }: GuestLoginProps) => {
             transition-all duration-200
             focus:border-primary/60 focus:ring-2 focus:ring-primary/20
             hover:border-border/80
+            disabled:opacity-50 disabled:cursor-not-allowed
           "
         />
       </div>
 
+      {/* Error message */}
+      {error && (
+        <p className="text-xs text-red-400 text-center px-1">{error}</p>
+      )}
+
       {/* Play as Guest button */}
       <motion.button
         type="submit"
-        disabled={!isValid}
+        disabled={!isValid || loading}
         whileHover={
-          isValid
+          isValid && !loading
             ? {
                 scale: 1.02,
                 boxShadow: "0 0 28px oklch(0.54 0.25 264 / 0.4)",
               }
             : {}
         }
-        whileTap={isValid ? { scale: 0.98 } : {}}
+        whileTap={isValid && !loading ? { scale: 0.98 } : {}}
         className="
           relative flex items-center justify-center gap-2.5 group
           w-full h-12 rounded-xl
@@ -80,7 +89,7 @@ const GuestLogin = ({ onGuestLogin }: GuestLoginProps) => {
             pointer-events-none
           "
         />
-        Play as Guest
+        {loading ? "Joining..." : "Play as Guest"}
       </motion.button>
     </form>
   );

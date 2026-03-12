@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -8,6 +9,13 @@ import roomManager from './rooms/roomManager.js';
 import { connectRedis } from './redis/redisClient.js';
 import { createAdapter } from "@socket.io/redis-adapter";
 
+import dotenv from "dotenv";
+import { connectDB } from "./config/db.js";
+import authRoutes from './auth/authRoutes.js';
+
+dotenv.config();
+
+connectDB();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
 
@@ -17,8 +25,18 @@ const app = express();
 const httpServer = createServer(app);
 
 // Middleware
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:5173',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR)); // Serves D:\Scribble\public regardless of cwd
+
+// ============================================
+// Authentication Routes
+// ============================================
+app.use('/auth', authRoutes);
 
 // ============================================
 // REST API Endpoints (Optional - for testing)

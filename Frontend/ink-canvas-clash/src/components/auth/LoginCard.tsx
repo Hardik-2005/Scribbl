@@ -1,13 +1,15 @@
 import { motion } from "framer-motion";
-import GoogleButton from "./GoogleButton";
+import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import GuestLogin from "./GuestLogin";
 
 interface LoginCardProps {
-  onGoogleLogin: () => void;
+  onGoogleSuccess: (response: CredentialResponse) => void;
   onGuestLogin: (username: string) => void;
+  guestLoading?: boolean;
+  guestError?: string | null;
 }
 
-const LoginCard = ({ onGoogleLogin, onGuestLogin }: LoginCardProps) => (
+const LoginCard = ({ onGoogleSuccess, onGuestLogin, guestLoading, guestError }: LoginCardProps) => (
   <motion.div
     initial={{ opacity: 0, y: 28, scale: 0.97 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -41,7 +43,16 @@ const LoginCard = ({ onGoogleLogin, onGuestLogin }: LoginCardProps) => (
       <p className="mb-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
         Sign in
       </p>
-      <GoogleButton onClick={onGoogleLogin} />
+      <div className="flex justify-center">
+        <GoogleLogin
+          onSuccess={onGoogleSuccess}
+          onError={() => console.error("[Auth] Google login error")}
+          theme="filled_black"
+          shape="rectangular"
+          size="large"
+          width="320"
+        />
+      </div>
     </div>
 
     {/* Divider */}
@@ -56,7 +67,7 @@ const LoginCard = ({ onGoogleLogin, onGuestLogin }: LoginCardProps) => (
       <p className="mb-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
         Play as guest
       </p>
-      <GuestLogin onGuestLogin={onGuestLogin} />
+      <GuestLogin onGuestLogin={onGuestLogin} loading={guestLoading} error={guestError} />
     </div>
 
     {/* Footer */}

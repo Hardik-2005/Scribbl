@@ -1,7 +1,10 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { motion } from "framer-motion";
+import { GoogleLogin } from "@react-oauth/google";
 import AnimatedBackground from "@/components/lobby/AnimatedBackground";
 import LoginCard from "./LoginCard";
+import { guestLogin, googleLogin, saveAuth } from "@/services/auth";
 
 /* ── Canvas illustration (floating SVG sketch) ─────────────────────────── */
 const CanvasIllustration = () => (
@@ -120,20 +123,36 @@ const GlowAccent = () => (
   />
 );
 
-/* ── LoginPage ──────────────────────────────────────────────────────────── */
+/* ── LoginPage ──────────────────────────────────────────────────────────────────────────────── */
 const LoginPage = () => {
   const navigate = useNavigate();
+  const [guestLoading, setGuestLoading] = useState(false);
+  const [guestError,   setGuestError  ] = useState<string | null>(null);
 
-  const onGoogleLogin = () => {
-    // TODO: wire up real OAuth
-    console.log("[Auth] Google login clicked — not yet implemented");
+  const onGoogleSuccess = async (credentialResponse: { credential?: string }) => {
+    if (!credentialResponse.credential) return;
+    try {
+      const result = await googleLogin(credentialResponse.credential);
+      saveAuth(result);
+      navigate("/lobby");
+    } catch (err) {
+      console.error("[Auth] Google login failed:", err);
+    }
   };
 
-  const onGuestLogin = (username: string) => {
-    // TODO: wire up auth service; for now persist username and go to lobby
-    console.log("[Auth] Guest login:", username);
-    localStorage.setItem("inka_username", username);
-    navigate("/lobby");
+  const onGuestLogin = async (username: string) => {
+    setGuestError(null);
+    setGuestLoading(true);
+    try {
+      const result = await guestLogin(username);
+      saveAuth(result);
+      navigate("/lobby");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Login failed. Is the server running?";
+      setGuestError(msg);
+    } finally {
+      setGuestLoading(false);
+    }
   };
 
   return (
@@ -238,7 +257,12 @@ const LoginPage = () => {
           </span>
         </motion.div>
 
-        <LoginCard onGoogleLogin={onGoogleLogin} onGuestLogin={onGuestLogin} />
+        <LoginCard
+          onGoogleSuccess={onGoogleSuccess}
+          onGuestLogin={onGuestLogin}
+          guestLoading={guestLoading}
+          guestError={guestError}
+        />
 
         {/* Mobile feature bullets */}
         <motion.div

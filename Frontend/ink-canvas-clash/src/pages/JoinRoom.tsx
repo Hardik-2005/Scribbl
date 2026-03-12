@@ -8,6 +8,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { connectSocket, socket } from "@/services/socket";
 import { useGameStore } from "@/store/gameStore";
+import { getStoredUser } from "@/services/auth";
 import AnimatedBackground from "@/components/lobby/AnimatedBackground";
 import type { RoomJoinedResponse, ErrorResponse } from "@/types/socket";
 
@@ -19,7 +20,9 @@ const JoinRoom = () => {
   const navigate   = useNavigate();
   const { setLocalPlayer, setRoomId: storeSetRoomId } = useGameStore();
 
-  const [username, setUsername] = useState(() => localStorage.getItem(LS_USERNAME) ?? "");
+  const [username, setUsername] = useState(
+    () => localStorage.getItem(LS_USERNAME) ?? getStoredUser()?.username ?? ""
+  );
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [connected, setConnected] = useState(socket.connected);

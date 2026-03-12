@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import { handleSocketConnection } from '../sockets/socketHandler.js';
+import { socketAuthMiddleware } from '../auth/authMiddleware.js';
 
 /**
  * Initializes and configures Socket.IO server
@@ -9,14 +10,16 @@ import { handleSocketConnection } from '../sockets/socketHandler.js';
 export function initializeSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: '*', // Allow all origins in development
+      origin: process.env.ALLOWED_ORIGIN || 'http://localhost:5173',
       methods: ['GET', 'POST'],
-      credentials: true
     },
     pingTimeout: 60000,
     pingInterval: 25000,
     transports: ['websocket', 'polling']
   });
+
+  // JWT authentication middleware — populates socket.user on every connection
+  io.use(socketAuthMiddleware);
 
   // Connection event handler
   io.on('connection', (socket) => {
