@@ -1,42 +1,60 @@
 /**
  * Redis Client Singleton
  * Shared by server.js (Socket.IO adapter) and roomStore.js (state layer).
- * Single connection — no extra TCP overhead.
+ * Redis is OPTIONAL in production. If REDIS_URL is not provided,
+ * the app will run without Redis.
  */
 
-import { createClient } from 'redis';
-
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+import { createClient } from "redis";
 
 let _client = null;
 
 /**
- * Returns the shared Redis client. Does NOT connect automatically.
- * Call connectRedis() at startup to ensure the connection is open before use.
+ * Returns the Redis client instance if REDIS_URL exists.
+ * Otherwise returns null.
  */
 export function getRedisClient() {
-  if (!_client) {
-    _client = createClient({ url: redisUrl });
+  if (!process.env.REDIS_URL) {
+    console.warn("[Redis] REDIS_URL not set. Running without Redis.");
+    return null;
+  }
 
-    _client.on('error',        (err) => console.error('[Redis] Client error:', err));
-    _client.on('reconnecting', ()    => console.warn('[Redis] Reconnecting...'));
-    _client.on('ready',        ()    => console.log('[Redis] Ready'));
+  if (!_client) {
+    _client = createClient({
+      url: process.env.REDIS_URL
+    });
+
+    _client.on("error", (err) => {
+      console.error("[Redis] Client error:", err);
+    });
+
+    _client.on("reconnecting", () => {
+      console.warn("[Redis] Reconnecting...");
+    });
+
+    _client.on("ready", () => {
+      console.log("[Redis] Ready");
+    });
   }
 
   return _client;
 }
 
 /**
- * Connects the singleton client if it is not already open.
+ * Connects Redis if REDIS_URL exists.
  * Safe to call multiple times.
- * @returns {Promise<RedisClientType>}
  */
 export async function connectRedis() {
   const client = getRedisClient();
 
+  if (!client) {
+    console.log("[Redis] Skipping Redis connection.");
+    return null;
+  }
+
   if (!client.isOpen) {
     await client.connect();
-    console.log('[Redis] Connected to', redisUrl);
+    console.log("[Redis] Connected to", process.env.REDIS_URL);
   }
 
   return client;
