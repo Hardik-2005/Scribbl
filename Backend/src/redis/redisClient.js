@@ -1,28 +1,43 @@
 import { createClient } from "redis";
 
-let redisClient = null;
+let client = null;
 
 export async function connectRedis() {
+  // If no REDIS_URL, disable Redis completely
   if (!process.env.REDIS_URL) {
-    console.log("[Redis] REDIS_URL not set. Skipping Redis.");
+    console.log("[Redis] REDIS_URL not set. Redis disabled.");
     return null;
   }
 
-  redisClient = createClient({
-    url: process.env.REDIS_URL
-  });
+  if (!client) {
+    client = createClient({
+      url: process.env.REDIS_URL,
+      socket: {
+        reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
+      }
+    });
 
-  redisClient.on("error", (err) => {
-    console.error("[Redis] Client error:", err);
-  });
+    client.on("error", (err) => {
+      console.error("[Redis] Client error:", err);
+    });
 
-  await redisClient.connect();
+    client.on("ready", () => {
+      console.log("[Redis] Ready");
+    });
 
-  console.log("[Redis] Connected");
+    client.on("reconnecting", () => {
+      console.warn("[Redis] Reconnecting...");
+    });
+  }
 
-  return redisClient;
+  if (!client.isOpen) {
+    await client.connect();
+    console.log("[Redis] Connected");
+  }
+
+  return client;
 }
 
 export function getRedisClient() {
-  return redisClient;
+  return client;
 }

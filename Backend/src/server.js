@@ -18,7 +18,7 @@ import authRoutes from "./auth/authRoutes.js";
 // Database Connection
 // ============================================
 
-connectDB();
+await connectDB();
 
 // ============================================
 // Paths
@@ -140,21 +140,28 @@ const io = initializeSocket(httpServer);
 // Redis Adapter (ONLY if REDIS_URL exists)
 // ============================================
 
-if (process.env.REDIS_URL) {
-  try {
+let redisEnabled = false;
+
+try {
+  if (process.env.REDIS_URL) {
     const pubClient = await connectRedis();
-    const subClient = pubClient.duplicate();
 
-    await subClient.connect();
+    if (pubClient) {
+      const subClient = pubClient.duplicate();
+      await subClient.connect();
 
-    io.adapter(createAdapter(pubClient, subClient));
+      io.adapter(createAdapter(pubClient, subClient));
+      redisEnabled = true;
 
-    console.log("[Redis] Adapter connected");
-  } catch (err) {
-    console.error("[Redis] Failed to initialize adapter:", err);
+      console.log("[Redis] Socket.IO adapter enabled");
+    }
   }
-} else {
-  console.log("[Redis] REDIS_URL not set. Running without Redis.");
+} catch (err) {
+  console.warn("[Redis] Redis unavailable, running without adapter");
+}
+
+if (!redisEnabled) {
+  console.log("[Redis] Running without Redis");
 }
 
 // ============================================
@@ -170,19 +177,13 @@ httpServer.listen(PORT, () => {
 // ============================================
 
 process.on("SIGTERM", () => {
-  console.log("[Server] SIGTERM received, closing server...");
-  httpServer.close(() => {
-    console.log("[Server] Server closed");
-    process.exit(0);
-  });
+  console.log("[Server] SIGTERM received, shutting down...");
+  httpServer.close(() => process.exit(0));
 });
 
 process.on("SIGINT", () => {
-  console.log("\n[Server] SIGINT received, closing server...");
-  httpServer.close(() => {
-    console.log("[Server] Server closed");
-    process.exit(0);
-  });
+  console.log("[Server] SIGINT received, shutting down...");
+  httpServer.close(() => process.exit(0));
 });
 
 // ============================================
@@ -190,5 +191,5 @@ process.on("SIGINT", () => {
 // ============================================
 
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("[Server] Unhandled Rejection at:", promise, "reason:", reason);
+  console.error("[Server] Unhandled Rejection:", reason);
 });
