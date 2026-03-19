@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { initializeSocket } from "./config/socket.js";
 import roomManager from "./rooms/roomManager.js";
 
-import { connectRedis } from "./redis/redisClient.js";
+import { connectRedis, disconnectRedis, getRedisClient } from "./redis/redisClient.js";
 import { createAdapter } from "@socket.io/redis-adapter";
 
 import { connectDB } from "./config/db.js";
@@ -19,6 +19,7 @@ import authRoutes from "./auth/authRoutes.js";
 // ============================================
 
 await connectDB();
+
 
 // ============================================
 // Paths
@@ -137,31 +138,37 @@ app.use((err, req, res, next) => {
 const io = initializeSocket(httpServer);
 
 // ============================================
-// Redis Adapter (ONLY if REDIS_URL exists)
+// Redis — connect FIRST, then attach adapter
 // ============================================
 
 let redisEnabled = false;
 
 try {
-  if (process.env.REDIS_URL) {
-    const pubClient = await connectRedis();
+  const pubClient = await connectRedis();
 
-    if (pubClient) {
-      const subClient = pubClient.duplicate();
-      await subClient.connect();
+  if (pubClient) {
+    // subClient must be a *duplicate* of pubClient — same config/auth
+    const subClient = pubClient.duplicate();
 
-      io.adapter(createAdapter(pubClient, subClient));
-      redisEnabled = true;
+    subClient.on('error', (err) =>
+      console.error('[Redis] Sub-client error:', err.message ?? err)
+    );
 
-      console.log("[Redis] Socket.IO adapter enabled");
-    }
+    await subClient.connect();
+
+    io.adapter(createAdapter(pubClient, subClient));
+    redisEnabled = true;
+    console.log('[Redis] Adapter enabled — Socket.IO will scale across instances');
+  } else {
+    console.warn('[Redis] Adapter NOT enabled — running with single-instance Socket.IO');
   }
 } catch (err) {
-  console.warn("[Redis] Redis unavailable, running without adapter");
+  console.error('[Redis] Adapter setup failed:', err.message ?? err);
+  console.warn('[Redis] Failed → fallback mode — single-instance Socket.IO only');
 }
 
 if (!redisEnabled) {
-  console.log("[Redis] Running without Redis");
+  console.log('[Redis] Running without Redis adapter (fallback mode)');
 }
 
 // ============================================
@@ -176,14 +183,20 @@ httpServer.listen(PORT, () => {
 // Graceful Shutdown
 // ============================================
 
-process.on("SIGTERM", () => {
+process.on("SIGTERM", async () => {
   console.log("[Server] SIGTERM received, shutting down...");
-  httpServer.close(() => process.exit(0));
+  httpServer.close(async () => {
+    await disconnectRedis();
+    process.exit(0);
+  });
 });
 
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   console.log("[Server] SIGINT received, shutting down...");
-  httpServer.close(() => process.exit(0));
+  httpServer.close(async () => {
+    await disconnectRedis();
+    process.exit(0);
+  });
 });
 
 // ============================================

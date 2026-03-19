@@ -13,6 +13,23 @@
 
 import { getRedisClient } from './redisClient.js';
 
+/**
+ * Returns the Redis client or throws a clean error if Redis is unavailable.
+ * All roomStore functions use this instead of getRedisClient() directly so
+ * that null-access crashes are impossible and callers get a sensible message.
+ */
+function requireRedisClient() {
+  const c = getRedisClient();
+  if (!c) {
+    throw new Error(
+      'Redis is not connected — room operations are unavailable. ' +
+      'Ensure REDIS_URL is set and the server has started correctly.'
+    );
+  }
+  return c;
+}
+
+
 // Lua script: release lock only if we own it (atomic check-then-delete)
 const RELEASE_LOCK_SCRIPT = `
   if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -143,7 +160,7 @@ function hydrateRoom(meta, playerFields) {
  * @throws {Error} If the room already exists
  */
 export async function createRoom(roomId, totalRounds = 3, roundDuration = 60) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const now    = String(Date.now());
 
   const created = await client.eval(CREATE_ROOM_SCRIPT, {
@@ -169,7 +186,7 @@ export async function createRoom(roomId, totalRounds = 3, roundDuration = 60) {
  * @returns {Promise<Object|null>}
  */
 export async function getRoom(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
 
   const [meta, playerFields] = await Promise.all([
     client.hGetAll(roomKey(roomId)),
@@ -187,7 +204,7 @@ export async function getRoom(roomId) {
  * @param {Object} room - Hydrated room object
  */
 export async function saveRoomMeta(room) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
 
   await client.hSet(roomKey(room.roomId), {
     roomId:               room.roomId,
@@ -214,7 +231,7 @@ export async function saveRoomMeta(room) {
  * @param {string} roomId
  */
 export async function deleteRoom(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
 
   await Promise.all([
     client.del(roomKey(roomId)),
@@ -230,7 +247,7 @@ export async function deleteRoom(roomId) {
  * @param {string} roomId
  */
 export async function roomExists(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   return (await client.exists(roomKey(roomId))) === 1;
 }
 
@@ -244,7 +261,7 @@ export async function roomExists(roomId) {
  * @param {Object} player
  */
 export async function savePlayer(roomId, player) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.hSet(playersKey(roomId), player.userId, JSON.stringify(player));
 }
 
@@ -273,7 +290,7 @@ export async function savePlayers(roomId, playersMap) {
  * @param {string} userId
  */
 export async function getPlayer(roomId, userId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const json   = await client.hGet(playersKey(roomId), userId);
   return json ? JSON.parse(json) : null;
 }
@@ -283,7 +300,7 @@ export async function getPlayer(roomId, userId) {
  * @param {string} roomId
  */
 export async function getPlayers(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const fields = await client.hGetAll(playersKey(roomId));
   const map    = new Map();
 
@@ -302,7 +319,7 @@ export async function getPlayers(roomId) {
  * @param {string} userId
  */
 export async function deletePlayer(roomId, userId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.hDel(playersKey(roomId), userId);
 }
 
@@ -316,7 +333,7 @@ export async function deletePlayer(roomId, userId) {
  * @param {Object} stroke
  */
 export async function pushStroke(roomId, stroke) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.rPush(strokesKey(roomId), JSON.stringify(stroke));
 }
 
@@ -339,7 +356,7 @@ export async function pushStrokes(roomId, strokes) {
  * @returns {Promise<Array<Object>>}
  */
 export async function getStrokes(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const items  = await client.lRange(strokesKey(roomId), 0, -1);
   return items.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
 }
@@ -349,7 +366,7 @@ export async function getStrokes(roomId) {
  * @param {string} roomId
  */
 export async function clearStrokes(roomId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.del(strokesKey(roomId));
 }
 
@@ -364,7 +381,7 @@ export async function clearStrokes(roomId) {
  * @param {string} userId
  */
 export async function setSocketMapping(socketId, roomId, userId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   // TTL of 2 hours; refreshed on reconnect
   await client.set(socketKey(socketId), JSON.stringify({ roomId, userId }), { EX: 7200 });
 }
@@ -375,7 +392,7 @@ export async function setSocketMapping(socketId, roomId, userId) {
  * @returns {Promise<{roomId:string, userId:string}|null>}
  */
 export async function getSocketMapping(socketId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const json   = await client.get(socketKey(socketId));
   return json ? JSON.parse(json) : null;
 }
@@ -385,7 +402,7 @@ export async function getSocketMapping(socketId) {
  * @param {string} socketId
  */
 export async function deleteSocketMapping(socketId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.del(socketKey(socketId));
 }
 
@@ -401,7 +418,7 @@ export async function deleteSocketMapping(socketId) {
  * @returns {Promise<boolean>} true if lock was acquired
  */
 export async function acquireLock(lockKey, ownerId, ttlSecs) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const result = await client.set(lockKey, ownerId, { NX: true, EX: ttlSecs });
   return result === 'OK';
 }
@@ -444,7 +461,7 @@ export async function refreshLock(lockKey, ownerId, ttlSecs) {
  * @returns {Promise<boolean>}
  */
 export async function isLockOwner(lockKey, ownerId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const value  = await client.get(lockKey);
   return value === ownerId;
 }
@@ -461,7 +478,7 @@ export async function isLockOwner(lockKey, ownerId) {
  * @returns {Promise<boolean>} true if this instance won the transition
  */
 export async function atomicStartGame(roomId, totalRounds) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   const result = await client.eval(START_GAME_ATOMIC_SCRIPT, {
     keys:      [roomKey(roomId)],
     arguments: [String(totalRounds)]
@@ -485,12 +502,12 @@ export async function atomicStartGame(roomId, totalRounds) {
  * @param {string} userId
  */
 export async function setRoomHost(roomId, userId) {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   await client.hSet(roomKey(roomId), { hostId: userId });
 }
 
 export async function getRoomCount() {
-  const client = getRedisClient();
+  const client = requireRedisClient();
   let count    = 0;
   let cursor   = 0;
 
