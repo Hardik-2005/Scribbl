@@ -1,10 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
 import { motion } from "framer-motion";
 import { GoogleLogin } from "@react-oauth/google";
 import AnimatedBackground from "@/components/lobby/AnimatedBackground";
 import LoginCard from "./LoginCard";
-import { guestLogin, googleLogin, saveAuth } from "@/services/auth";
+import { googleLogin, saveAuth } from "@/services/auth";
 
 /* ── Canvas illustration (floating SVG sketch) ─────────────────────────── */
 const CanvasIllustration = () => (
@@ -126,8 +125,6 @@ const GlowAccent = () => (
 /* ── LoginPage ──────────────────────────────────────────────────────────────────────────────── */
 const LoginPage = () => {
   const navigate = useNavigate();
-  const [guestLoading, setGuestLoading] = useState(false);
-  const [guestError,   setGuestError  ] = useState<string | null>(null);
 
   const onGoogleSuccess = async (credentialResponse: { credential?: string }) => {
     if (!credentialResponse.credential) return;
@@ -137,21 +134,6 @@ const LoginPage = () => {
       navigate("/lobby");
     } catch (err) {
       console.error("[Auth] Google login failed:", err);
-    }
-  };
-
-  const onGuestLogin = async (username: string) => {
-    setGuestError(null);
-    setGuestLoading(true);
-    try {
-      const result = await guestLogin(username);
-      saveAuth(result);
-      navigate("/lobby");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Login failed. Is the server running?";
-      setGuestError(msg);
-    } finally {
-      setGuestLoading(false);
     }
   };
 
@@ -259,9 +241,6 @@ const LoginPage = () => {
 
         <LoginCard
           onGoogleSuccess={onGoogleSuccess}
-          onGuestLogin={onGuestLogin}
-          guestLoading={guestLoading}
-          guestError={guestError}
         />
 
         {/* Mobile feature bullets */}

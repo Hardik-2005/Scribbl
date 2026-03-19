@@ -28,6 +28,25 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<T> 
   return data as T;
 }
 
+// ── Email register ────────────────────────────────────────────────────────────
+
+export async function registerWithEmail(
+  username: string,
+  email: string,
+  password: string
+): Promise<AuthResult> {
+  return post<AuthResult>("/auth/register", { username, email, password });
+}
+
+// ── Email login ───────────────────────────────────────────────────────────────
+
+export async function loginWithEmail(
+  email: string,
+  password: string
+): Promise<AuthResult> {
+  return post<AuthResult>("/auth/login", { email, password });
+}
+
 // ── Guest login ───────────────────────────────────────────────────────────────
 
 export async function guestLogin(username: string): Promise<AuthResult> {

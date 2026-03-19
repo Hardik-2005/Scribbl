@@ -39,5 +39,10 @@ export async function connectRedis() {
 }
 
 export function getRedisClient() {
+  if (!client) {
+    throw new Error(
+      '[Redis] Client not initialized — ensure REDIS_URL is set and connectRedis() was called before handling requests'
+    );
+  }
   return client;
 }

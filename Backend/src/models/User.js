@@ -19,6 +19,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    passwordHash: {
+      type: String,
+      // No default — absent on guest/Google users
+    },
     googleId: {
       type: String,
       // No default — absent on guest/email users

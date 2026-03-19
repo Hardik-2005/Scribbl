@@ -6,7 +6,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { connectSocket, socket } from "@/services/socket";
+import { connectSocket, socket, safeCallback } from "@/services/socket";
 import { useGameStore } from "@/store/gameStore";
 import { getStoredUser } from "@/services/auth";
 import AnimatedBackground from "@/components/lobby/AnimatedBackground";
@@ -52,7 +52,7 @@ const JoinRoom = () => {
     if (!connected) { setError("Not connected to server — please wait."); return; }
     setLoading(true);
     setError(null);
-    socket.emit("join_room", { roomId: rid, username: un }, (res: RoomJoinedResponse | ErrorResponse) => {
+    socket.emit("join_room", { roomId: rid, username: un }, safeCallback((res: RoomJoinedResponse | ErrorResponse) => {
       setLoading(false);
       if (!res.success) {
         setError((res as ErrorResponse).error);
@@ -64,7 +64,7 @@ const JoinRoom = () => {
       localStorage.setItem(LS_USERNAME, ok.username);
       localStorage.setItem(LS_ROOM_ID,  ok.roomId);
       navigate("/game");
-    });
+    }));
   };
 
   const roomNotFound =

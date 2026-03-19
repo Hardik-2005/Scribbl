@@ -1,9 +1,10 @@
-﻿import { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "sonner";
 import { socket } from "@/services/socket";
+import { safeCallback } from "@/services/socket";
 import { useGameStore } from "@/store/gameStore";
 import { getStoredUser } from "@/services/auth";
 import ConnectionBadge from "./ConnectionBadge";
@@ -308,7 +309,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
   // Join existing room — optional onSuccess overrides the default navigate("/game")
   const doJoin = useCallback(
     (rid: string, un: string, onSuccess?: () => void) => {
-      socket.emit("join_room", { roomId: rid, username: un }, (res: RoomJoinedResponse | ErrorResponse) => {
+      socket.emit("join_room", { roomId: rid, username: un }, safeCallback((res: RoomJoinedResponse | ErrorResponse) => {
         setLoading(null);
         if (!res.success) { setError((res as ErrorResponse).error); return; }
         const ok = res as RoomJoinedResponse;
@@ -317,7 +318,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
         persist(ok.username, ok.roomId);
         if (onSuccess) onSuccess();
         else navigate("/game");
-      });
+      }));
     },
     [navigate, setLocalPlayer, storeSetRoomId]
   );
@@ -332,7 +333,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
     socket.emit(
       "create_room",
       { roomId: rid, username: username.trim() },
-      (res: RoomCreatedResponse | ErrorResponse) => {
+      safeCallback((res: RoomCreatedResponse | ErrorResponse) => {
         setLoading(null);
         if (!res.success) { setError((res as ErrorResponse).error); return; }
         const ok = res as RoomCreatedResponse;
@@ -345,7 +346,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
           setLoading("create");
           doJoin(ok.roomId, username.trim(), () => setCreatedRoom(ok.roomId));
         }
-      }
+      })
     );
   };
 
@@ -365,7 +366,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
     socket.emit(
       "create_room",
       { roomId: rid, username: username.trim() },
-      (res: RoomCreatedResponse | ErrorResponse) => {
+      safeCallback((res: RoomCreatedResponse | ErrorResponse) => {
         setLoading(null);
         if (!res.success) { setError((res as ErrorResponse).error); return; }
         const ok = res as RoomCreatedResponse;
@@ -378,7 +379,7 @@ const LobbyPanel = ({ connected, connecting }: LobbyPanelProps) => {
           setLoading("quick");
           doJoin(ok.roomId, username.trim(), () => setCreatedRoom(ok.roomId));
         }
-      }
+      })
     );
   };
 

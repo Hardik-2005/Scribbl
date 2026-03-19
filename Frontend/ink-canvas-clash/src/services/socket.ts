@@ -1,5 +1,5 @@
-﻿import { io, Socket } from "socket.io-client";
-import type { ClientToServerEvents, ServerToClientEvents } from "@/types/socket";
+import { io, Socket } from "socket.io-client";
+import type { ClientToServerEvents, ServerToClientEvents, ErrorResponse } from "@/types/socket";
 import { getToken } from "./auth";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000";
@@ -30,3 +30,27 @@ export const connectSocket = (): void => {
 export const disconnectSocket = (): void => {
   socket.disconnect();
 };
+
+/**
+ * Wraps a socket ACK callback to guard against null/undefined responses.
+ *
+ * Socket.IO can deliver a null/undefined ACK when the server crashes or
+ * disconnects before it fires the callback. Without this guard, accessing
+ * `res.success` on null throws a TypeError that crashes the UI.
+ *
+ * Usage:
+ *   socket.emit('create_room', payload, safeCallback((res) => { ... }));
+ */
+export function safeCallback<T extends { success: boolean }>(
+  handler: (res: T | ErrorResponse) => void,
+  fallbackError = 'No response from server — please try again.'
+): (res: T | null | undefined) => void {
+  return (res) => {
+    console.debug('[Socket] ACK received:', res);
+    if (res == null || typeof res !== 'object') {
+      handler({ success: false, error: fallbackError } as ErrorResponse);
+    } else {
+      handler(res as T | ErrorResponse);
+    }
+  };
+}

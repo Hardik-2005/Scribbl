@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import User from '../models/User.js';
 import { signToken } from './jwt.js';
@@ -103,6 +104,59 @@ export async function googleLogin(accessToken) {
       googleId,
       isGuest: false,
     });
+  }
+
+  const token = signToken({ userId: user._id.toString(), username: user.username });
+  return { token, user: formatUser(user) };
+}
+
+// ── Email Register ────────────────────────────────────────────────────────────
+
+export async function registerWithEmail(username, email, password) {
+  if (!username || typeof username !== 'string' || username.trim().length < 2) {
+    throw Object.assign(new Error('Username must be at least 2 characters'), { status: 400 });
+  }
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    throw Object.assign(new Error('A valid email is required'), { status: 400 });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    throw Object.assign(new Error('Password must be at least 6 characters'), { status: 400 });
+  }
+
+  const existing = await User.findOne({ email: email.toLowerCase().trim() });
+  if (existing) {
+    throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const avatar = diceBearAvatar(`${username.trim()}-${Date.now()}`);
+  const user = await User.create({
+    username: username.trim(),
+    email: email.toLowerCase().trim(),
+    passwordHash,
+    avatar,
+    isGuest: false,
+  });
+
+  const token = signToken({ userId: user._id.toString(), username: user.username });
+  return { token, user: formatUser(user) };
+}
+
+// ── Email Login ───────────────────────────────────────────────────────────────
+
+export async function loginWithEmail(email, password) {
+  if (!email || !password) {
+    throw Object.assign(new Error('Email and password are required'), { status: 400 });
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+  if (!user || !user.passwordHash) {
+    throw Object.assign(new Error('Invalid email or password'), { status: 401 });
+  }
+
+  const match = await bcrypt.compare(password, user.passwordHash);
+  if (!match) {
+    throw Object.assign(new Error('Invalid email or password'), { status: 401 });
   }
 
   const token = signToken({ userId: user._id.toString(), username: user.username });
